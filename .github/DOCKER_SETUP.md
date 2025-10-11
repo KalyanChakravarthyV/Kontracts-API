@@ -4,7 +4,7 @@ This document explains how to configure the GitHub Actions workflow to push Dock
 
 ## Prerequisites
 
-1. A Docker Hub account (username: `kavadlakonda`)
+1. A Docker Hub account
 2. Access to the GitHub repository settings
 
 ## Setup Instructions
@@ -19,15 +19,22 @@ This document explains how to configure the GitHub Actions workflow to push Dock
 6. Click **Generate**
 7. **Copy the token** (you won't be able to see it again!)
 
-### 2. Add Secret to GitHub Repository
+### 2. Add Secrets to GitHub Repository
 
 1. Go to your GitHub repository: https://github.com/KalyanChakravarthyV/Kontracts-API
 2. Click on **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret**
-4. Add the following secret:
+4. Add the following secrets:
+
+   **Secret 1: Docker Username**
+   - **Name**: `DOCKER_USERNAME`
+   - **Value**: Your Docker Hub username (e.g., `kvadlakonda`)
+
+   **Secret 2: Docker Password**
    - **Name**: `DOCKER_PASSWORD`
    - **Value**: Paste the Docker Hub access token you copied earlier
-5. Click **Add secret**
+
+5. Click **Add secret** for each
 
 ### 3. Verify the Workflow
 
@@ -40,17 +47,17 @@ The workflow is configured in `.github/workflows/docker-build-push.yml` and will
   - Manual workflow dispatch
 
 - **Build and push images with tags**:
-  - `kavadlakonda/kontracts-api:latest` (on main branch)
-  - `kavadlakonda/kontracts-api:main` (on main branch)
-  - `kavadlakonda/kontracts-api:develop` (on develop branch)
-  - `kavadlakonda/kontracts-api:v1.0.0` (on version tags)
-  - `kavadlakonda/kontracts-api:main-<git-sha>` (commit SHA)
+  - `<username>/kontracts-api:latest` (on main branch)
+  - `<username>/kontracts-api:main` (on main branch)
+  - `<username>/kontracts-api:develop` (on develop branch)
+  - `<username>/kontracts-api:v1.0.0` (on version tags)
+  - `<username>/kontracts-api:main-<git-sha>` (commit SHA)
 
 - **Multi-platform support**: Builds for both `linux/amd64` and `linux/arm64`
 
 ## Docker Image Details
 
-- **Docker Hub Repository**: `kavadlakonda/kontracts-api`
+- **Docker Hub Repository**: `<your-username>/kontracts-api` (based on DOCKER_USERNAME secret)
 - **Base Image**: Python 3.11-slim
 - **Exposed Port**: 8000
 - **Health Check**: Configured for `/health` endpoint
@@ -60,7 +67,7 @@ The workflow is configured in `.github/workflows/docker-build-push.yml` and will
 ### Pull the image
 
 ```bash
-docker pull kavadlakonda/kontracts-api:latest
+docker pull <your-username>/kontracts-api:latest
 ```
 
 ### Run the container
@@ -71,7 +78,7 @@ docker run -d \
   -e DATABASE_URL="postgresql://user:password@host:port/database" \
   -e OPENAI_API_KEY="your-api-key" \
   --name kontracts-api \
-  kavadlakonda/kontracts-api:latest
+  <your-username>/kontracts-api:latest
 ```
 
 ### Using docker-compose
@@ -81,7 +88,7 @@ version: '3.8'
 
 services:
   api:
-    image: kavadlakonda/kontracts-api:latest
+    image: <your-username>/kontracts-api:latest
     ports:
       - "8000:8000"
     environment:
