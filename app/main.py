@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import engine, Base
-from .api.v1 import leases, schedules
+from .api.v1 import leases, schedules, payments
 
 import os
 import sys
@@ -37,6 +37,7 @@ app.add_middleware(
 # Include routers
 app.include_router(leases.router, prefix="/api/v1")
 app.include_router(schedules.router, prefix="/api/v1")
+app.include_router(payments.router, prefix="/api/v1")
 
 
 @app.get("/")

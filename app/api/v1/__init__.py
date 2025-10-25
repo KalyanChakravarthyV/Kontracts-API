@@ -1,3 +1,3 @@
-from . import leases, schedules
+from . import leases, schedules, payments
 
-__all__ = ["leases", "schedules"]
+__all__ = ["leases", "schedules", "payments"]

@@ -7,7 +7,8 @@ A FastAPI-based application for generating ASC 842 and IFRS 16 lease accounting 
 - **ASC 842 Compliance**: Generate lease schedules compliant with US GAAP ASC 842
 - **IFRS 16 Compliance**: Generate lease schedules compliant with IFRS 16
 - **Finance & Operating Leases**: Support for both lease classifications under ASC 842
-- **PostgreSQL Persistence**: All lease data and schedules stored in PostgreSQL
+- **Payment Management**: Track and manage lease payments with status tracking and summaries
+- **PostgreSQL Persistence**: All lease data, schedules, and payments stored in PostgreSQL
 - **RESTful API**: Clean API design with automatic documentation
 - **Docker Deployment**: Complete containerization with Docker and docker-compose
 
@@ -33,13 +34,16 @@ lease-accounting-api/
 │   ├── api/
 │   │   └── v1/
 │   │       ├── leases.py          # Lease CRUD endpoints
-│   │       └── schedules.py       # Schedule generation endpoints
+│   │       ├── schedules.py       # Schedule generation endpoints
+│   │       └── payments.py        # Payment management endpoints
 │   ├── models/
 │   │   ├── lease.py               # Lease ORM models
-│   │   └── schedule.py            # Schedule ORM models
+│   │   ├── schedule.py            # Schedule ORM models
+│   │   └── journals.py            # Payment and journal ORM models
 │   ├── schemas/
 │   │   ├── lease.py               # Pydantic schemas for leases
-│   │   └── schedule.py            # Pydantic schemas for schedules
+│   │   ├── schedule.py            # Pydantic schemas for schedules
+│   │   └── journals.py            # Pydantic schemas for payments
 │   ├── services/
 │   │   ├── asc842_calculator.py   # ASC 842 calculation logic
 │   │   └── ifrs16_calculator.py   # IFRS 16 calculation logic
@@ -159,6 +163,31 @@ curl "http://localhost:8000/api/v1/schedules/entries/1/ifrs16"
 curl "http://localhost:8000/api/v1/leases/"
 ```
 
+### 6. Create a Payment
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/payments/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contract_id": "lease-001",
+    "amount": 5000.00,
+    "due_date": "2025-11-15T00:00:00",
+    "status": "Scheduled"
+  }'
+```
+
+### 7. Mark Payment as Paid
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/payments/{payment_id}/mark-paid"
+```
+
+### 8. Get Payment Summary for Contract
+
+```bash
+curl "http://localhost:8000/api/v1/payments/contract/lease-001/summary"
+```
+
 ## API Endpoints
 
 ### Leases
@@ -178,6 +207,24 @@ curl "http://localhost:8000/api/v1/leases/"
 - `DELETE /api/v1/schedules/asc842/{lease_id}` - Delete ASC 842 schedule
 - `DELETE /api/v1/schedules/ifrs16/{lease_id}` - Delete IFRS 16 schedule
 
+### Payments
+- `POST /api/v1/payments/` - Create a new payment
+- `GET /api/v1/payments/` - List all payments with filtering and sorting
+- `GET /api/v1/payments/{payment_id}` - Get specific payment
+- `PUT /api/v1/payments/{payment_id}` - Update payment
+- `DELETE /api/v1/payments/{payment_id}` - Delete payment
+- `POST /api/v1/payments/{payment_id}/mark-paid` - Mark payment as paid
+- `GET /api/v1/payments/contract/{contract_id}/summary` - Get payment summary for contract
+
+#### Payment Filtering & Sorting
+Query parameters for `GET /api/v1/payments/`:
+- `contract_id` - Filter by contract/lease ID
+- `status` - Filter by payment status (Scheduled, Paid, etc.)
+- `sort_by` - Sort by any field (default: due_date)
+- `sort_order` - Sort order: asc or desc (default: asc)
+- `skip` - Number of records to skip (pagination)
+- `limit` - Maximum records to return (default: 100, max: 1000)
+
 ## Database Schema
 
 ### Leases Table
@@ -191,6 +238,13 @@ Stores summary information for IFRS 16 calculations.
 
 ### Lease Schedule Entries Table
 Stores detailed period-by-period amortization schedules for both standards.
+
+### Payments Table
+Stores payment records for leases and contracts with tracking information:
+- Payment amounts and due dates
+- Payment status (Scheduled, Paid, Overdue, etc.)
+- Paid date tracking
+- Association with contracts/leases
 
 ## Key Calculations
 
