@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.lease import Lease, LeaseScheduleEntry
 from app.models.schedule import IFRS16Schedule
+from .utils import make_json_safe
 
 
 class IFRS16Calculator:
@@ -65,7 +66,7 @@ class IFRS16Calculator:
             residual_pv = float(self.lease.residual_value) / ((1 + period_rate) ** n_periods)
             pv += Decimal(str(residual_pv))
 
-        return pv.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return pv.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
     def calculate_initial_measurements(self) -> Tuple[Decimal, Decimal]:
         """
@@ -101,6 +102,9 @@ class IFRS16Calculator:
         total_payments = sum(e["lease_payment"] for e in entries)
         total_interest = sum(e["interest_expense"] for e in entries)
         total_depreciation = sum(e["amortization"] for e in entries)
+
+         # Safe JSON Serializer
+        entries = make_json_safe(entries)
 
         # Create schedule record
         schedule = IFRS16Schedule(
@@ -145,7 +149,7 @@ class IFRS16Calculator:
 
         # Straight-line depreciation
         depreciation_per_period = (rou_asset / Decimal(str(n_periods))).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
+            Decimal("0.001"), rounding=ROUND_HALF_UP
         )
 
         for period in range(1, n_periods + 1):
@@ -153,7 +157,7 @@ class IFRS16Calculator:
 
             # Interest expense = Beginning liability * discount rate (effective interest method)
             interest_expense = (remaining_liability * period_rate).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
+                Decimal("0.001"), rounding=ROUND_HALF_UP
             )
 
             # Principal reduction = Payment - Interest

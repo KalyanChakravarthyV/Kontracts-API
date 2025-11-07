@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.lease import Lease, LeaseScheduleEntry, LeaseClassification
 from app.models.schedule import ASC842Schedule
+from .utils import make_json_safe
 
 
 class ASC842Calculator:
@@ -62,7 +63,7 @@ class ASC842Calculator:
             residual_pv = float(self.lease.residual_value) / ((1 + period_rate) ** n_periods)
             pv += Decimal(str(residual_pv))
 
-        return pv.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return pv.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
     def calculate_initial_measurements(self) -> Tuple[Decimal, Decimal]:
         """
@@ -81,6 +82,19 @@ class ASC842Calculator:
         )
 
         return rou_asset, lease_liability
+
+    # def make_json_safe(self, obj):
+    #     """Recursively convert Decimals and dates to JSON-serializable types."""
+    #     if isinstance(obj, decimal.Decimal):
+    #         return float(obj)
+    #     elif isinstance(obj, (datetime.date, datetime.datetime)):
+    #         return obj.isoformat()
+    #     elif isinstance(obj, list):
+    #         return [self.make_json_safe(x) for x in obj]
+    #     elif isinstance(obj, dict):
+    #         return {k: self.make_json_safe(v) for k, v in obj.items()}
+    #     else:
+    #         return obj
 
     def generate_schedule(self, db: Session) -> ASC842Schedule:
         """Generate complete ASC 842 lease schedule"""
@@ -101,6 +115,9 @@ class ASC842Calculator:
         total_payments = sum(e["lease_payment"] for e in entries)
         total_interest = sum(e["interest_expense"] for e in entries)
         total_amortization = sum(e["amortization"] for e in entries)
+
+        # Safe JSON Serializer
+        entries = make_json_safe(entries)
 
         # Create schedule record
         schedule = ASC842Schedule(
@@ -135,7 +152,7 @@ class ASC842Calculator:
         remaining_liability = lease_liability
         remaining_asset = rou_asset
         amortization_per_period = (rou_asset / Decimal(str(n_periods))).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
+            Decimal("0.001"), rounding=ROUND_HALF_UP
         )
 
         for period in range(1, n_periods + 1):
@@ -143,7 +160,7 @@ class ASC842Calculator:
 
             # Interest expense = Beginning liability * period rate
             interest_expense = (remaining_liability * period_rate).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
+                Decimal("0.001"), rounding=ROUND_HALF_UP
             )
 
             # Principal reduction = Payment - Interest
@@ -191,7 +208,7 @@ class ASC842Calculator:
         # Calculate total lease cost and straight-line expense
         total_lease_cost = (self.lease.periodic_payment * Decimal(str(n_periods))) + self.lease.initial_direct_costs
         straight_line_expense = (total_lease_cost / Decimal(str(n_periods))).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
+            Decimal("0.001"), rounding=ROUND_HALF_UP
         )
 
         for period in range(1, n_periods + 1):
@@ -199,7 +216,7 @@ class ASC842Calculator:
 
             # Interest expense = Beginning liability * period rate
             interest_expense = (remaining_liability * period_rate).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
+                Decimal("0.001"), rounding=ROUND_HALF_UP
             )
 
             # For operating leases: Amortization = Straight-line expense - Interest
