@@ -7,6 +7,7 @@ from app.models.lease import Lease, LeaseScheduleEntry
 from app.models.schedule import ASC842Schedule, IFRS16Schedule
 from app.schemas.schedule import ASC842ScheduleResponse, IFRS16ScheduleResponse, ScheduleEntryResponse
 from app.services.asc842_calculator import ASC842Calculator
+from app.services.asc842_calculator_v1 import ASC842CalculatorFromPayments
 from app.services.ifrs16_calculator import IFRS16Calculator
 
 router = APIRouter(prefix="/schedules", tags=["Schedules"])
@@ -33,7 +34,8 @@ def generate_asc842_schedule(
             detail=f"ASC 842 schedule already exists for lease {lease_id}. Delete it first to regenerate."
         )
 
-    calculator = ASC842Calculator(lease)
+    # calculator = ASC842Calculator(lease)
+    calculator = ASC842CalculatorFromPayments(lease)
     schedule = calculator.generate_schedule(db)
     return schedule
 
