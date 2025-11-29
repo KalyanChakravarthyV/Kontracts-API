@@ -3,6 +3,8 @@ from supertokens_python import init, SupertokensConfig, InputAppInfo
 from supertokens_python.recipe import session, emailpassword
 from supertokens_python.recipe.emailpassword import EmailPasswordRecipe
 from supertokens_python.recipe.session import SessionRecipe
+from app import config
+
 
 # -----------------------
 # Supertokens Setup
@@ -11,16 +13,15 @@ def setup_supertokens():
     init(
         framework="fastapi",
         supertokens_config=SupertokensConfig(
-            connection_uri=os.getenv("SUPERTOKENS_URI", 
-                                    "https://st-dev-fdf12c91-9afd-11f0-9aaa-5376855ce515.aws.supertokens.io"),
-            api_key="iD9pzThBwwKbfVLWjFUMszLK1h"
+            connection_uri=config.SUPERTOKENS_CONNECTION_URI,
+            api_key=config.SUPERTOKENS_API_KEY
         ),
         app_info=InputAppInfo(
             app_name="Lease Accounting API",
-            api_domain="http://localhost:8000",
-            website_domain="https://kontracts-ui.vadlakonda.in",
-            api_base_path="/auth",
-            website_base_path="/auth",
+            api_domain=config.API_DOMAIN,
+            website_domain=config.WEBSITE_DOMAIN,
+            api_base_path=config.API_BASE_PATH,
+            website_base_path=config.WEBSITE_BASE_PATH,
         ),
         recipe_list=[
             emailpassword.init(),
