@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from supertokens_python.framework.fastapi import get_middleware
+from supertokens_python.recipe.session import SessionRecipe
 from .supertokens_config import setup_supertokens
 
 from .database import engine, Base
@@ -39,9 +40,11 @@ app.add_middleware(
     allow_origins=["https://kontracts-ui.vadlakonda.in"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "*",
+        *SessionRecipe.get_instance().get_all_cors_headers(),
+    ],
 )
-
 
 # Include routers
 app.include_router(leases.router, prefix="/api/v1")

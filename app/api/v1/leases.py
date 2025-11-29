@@ -7,7 +7,7 @@ from app.models.lease import Lease
 from app.schemas.lease import LeaseCreate, LeaseUpdate, LeaseResponse
 from app.auth import get_current_user
 
-
+# , dependencies=[Depends(get_current_user)]
 router = APIRouter(prefix="/leases", tags=["Leases"], dependencies=[Depends(get_current_user)])
 
 @router.post("/", response_model=LeaseResponse, status_code=status.HTTP_201_CREATED)
