@@ -25,11 +25,10 @@ def setup_supertokens():
         ),
         recipe_list=[
             emailpassword.init(),
-            # session.init(cookie_secure=False),
             session.init(
                 cookie_secure=False,
-                cookie_same_site="none"
+                cookie_same_site="lax",  # Changed from "none" to "lax" for localhost
+                get_token_transfer_method=lambda _, __, ___: "cookie"  # Force cookie mode
             )
-
         ],
     )
