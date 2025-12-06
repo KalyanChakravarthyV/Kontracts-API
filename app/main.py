@@ -1,40 +1,40 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from supertokens_python.framework.fastapi import get_middleware
-from supertokens_python.recipe.session import SessionRecipe
-from .supertokens_config import setup_supertokens
+from starlette.middleware.sessions import SessionMiddleware
 
 from .database import engine, Base
 from .api.v1 import auth, leases, schedules, payments
+from .oauth_config import SECRET_KEY
 
 import sys
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize SuperTokens BEFORE FastAPI app starts
-setup_supertokens()
-
 app = FastAPI(
     title="Lease Accounting API",
     description="""
-## Lease Accounting API with SuperTokens Authentication
+## Lease Accounting API with Zoho Directory OAuth2 Authentication
 
 This API provides lease accounting schedule generation for ASC 842 (US GAAP) and IFRS 16 (International) standards.
 
 ### Authentication
 
-All endpoints except `/auth/signup` and `/auth/signin` require authentication using Bearer tokens.
+All endpoints except `/auth/login` and `/auth/callback` require authentication using Bearer tokens issued after Zoho login.
 
 **To get started:**
-1. Use `/api/v1/auth/signup` to create an account
-2. Use `/api/v1/auth/signin` to obtain session tokens (stored in cookies)
-3. Click the **🔓 Authorize** button below and the authentication will work automatically via cookies
-4. Or manually add `Bearer <token>` to the Authorization header
+1. Visit `/api/v1/auth/login` to initiate Zoho OAuth2 login
+2. After successful login, you'll receive a JWT access token
+3. Click the **🔓 Authorize** button and enter your token
+4. Or add `Bearer <token>` to the Authorization header manually
 
-SuperTokens automatically manages session tokens via HTTP-only cookies for browser clients.
+### OAuth2 Flow
+1. User visits `/api/v1/auth/login`
+2. Redirected to Zoho login page
+3. After login, redirected back to `/api/v1/auth/callback`
+4. Receive JWT token in response
+5. Use token for all subsequent API calls
     """,
     version="1.0.0",
     swagger_ui_parameters={
@@ -60,29 +60,22 @@ def custom_openapi():
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Enter the Bearer token from SuperTokens session (usually handled via cookies automatically)"
-        },
-        "Cookie": {
-            "type": "apiKey",
-            "in": "cookie",
-            "name": "sAccessToken",
-            "description": "SuperTokens session cookie (set automatically after signin)"
+            "description": "Enter the Bearer token returned after Zoho login"
         }
     }
 
-    # Apply security to all endpoints except auth endpoints
+    # Apply security to all endpoints except auth login and callback
     if "paths" in openapi_schema:
         for path, path_item in openapi_schema["paths"].items():
-            # Skip auth endpoints (signup, signin)
-            if "/auth/signup" in path or "/auth/signin" in path:
+            # Skip auth endpoints (login, callback)
+            if "/auth/login" in path or "/auth/callback" in path:
                 continue
 
             # Apply security to all methods in this path
             for method in path_item:
                 if method in ["get", "post", "put", "delete", "patch"]:
-                    # Add security requirement - try Cookie first, then Bearer
+                    # Add security requirement - Bearer token
                     path_item[method]["security"] = [
-                        {"Cookie": []},
                         {"Bearer": []}
                     ]
 
@@ -91,8 +84,8 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Add SuperTokens middleware
-app.add_middleware(get_middleware())
+# Add session middleware for OAuth2
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 
 @app.on_event("startup")
@@ -103,16 +96,13 @@ def on_startup():
         Base.metadata.create_all(bind=engine)
 
 
-# CORS (SuperTokens requires credentials=True)
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://kontracts-ui.vadlakonda.in"],
+    allow_origins=["https://kontracts-ui.vadlakonda.in", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=[
-        "*",
-        *SessionRecipe.get_instance().get_all_cors_headers(),
-    ],
+    allow_headers=["*"],
 )
 
 # Include routers

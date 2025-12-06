@@ -1,150 +1,140 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
-from supertokens_python.recipe.emailpassword.asyncio import sign_up, sign_in
-from supertokens_python.recipe.session import SessionContainer
-from supertokens_python.recipe.session.framework.fastapi import verify_session
-from supertokens_python.recipe.session.asyncio import create_new_session
-from supertokens_python.types import RecipeUserId
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from datetime import timedelta
 
-from app.auth import get_current_user
-from pydantic import BaseModel, EmailStr, Field
+from app.auth import get_current_user, create_access_token
+from app.oauth_config import (
+    oauth,
+    ZOHO_REDIRECT_URI,
+    ZOHO_CLIENT_ID,
+    ZOHO_CLIENT_SECRET,
+    ZOHO_USERINFO_URL,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-class SignUpRequest(BaseModel):
-    email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
-class SignInRequest(BaseModel):
-    email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., description="Password")
-
-
-class AuthResponse(BaseModel):
-    message: str
-    user_id: str
+class UserInfoResponse(BaseModel):
+    sub: str
     email: str
+    name: str
+    picture: Optional[str] = None
 
 
-@router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def signup(user_data: SignUpRequest):
+@router.get("/login")
+async def login(request: Request):
     """
-    Register a new user with email and password.
+    Initiate Zoho OAuth2 login flow.
 
-    After successful signup, use the /auth/signin endpoint to obtain session tokens.
+    This endpoint redirects the user to Zoho's login page.
+    After successful authentication, Zoho will redirect back to the callback URL.
+
+    **Important:** Configure this URL in your Zoho Application:
+    - Redirect URI: {API_URL}/api/v1/auth/callback
     """
+    redirect_uri = ZOHO_REDIRECT_URI
+    return await oauth.zoho.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/callback")
+async def auth_callback(request: Request):
+    """
+    OAuth2 callback endpoint that receives the authorization code from Zoho.
+
+    This endpoint:
+    1. Receives the authorization code from Zoho
+    2. Exchanges it for an access token
+    3. Fetches user information
+    4. Creates a JWT token for the user
+    5. Returns the JWT token
+
+    **Important:** Configure this exact URL in your Zoho Application as the Redirect URI.
+    """
+    if not ZOHO_CLIENT_ID or not ZOHO_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Zoho OAuth client ID/secret not configured. Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET.",
+        )
+
     try:
-        # Use SuperTokens sign_up function
-        result = await sign_up("public", user_data.email, user_data.password)
+        # Exchange authorization code for access token
+        token = await oauth.zoho.authorize_access_token(request)
 
-        if result.status == "OK":
-            return AuthResponse(
-                message="User created successfully. Please sign in to get access token.",
-                user_id=result.user.id,
-                email=user_data.email
-            )
-        elif result.status == "EMAIL_ALREADY_EXISTS_ERROR":
+        # Get user info from Zoho
+        user_info = token.get('userinfo')
+        if not user_info:
+            # If userinfo not in token, fetch it
+            resp = await oauth.zoho.get(ZOHO_USERINFO_URL, token=token)
+            user_info = resp.json()
+
+        # Extract user details
+        user_id = user_info.get('sub') or user_info.get('ZUID')
+        email = user_info.get('email')
+        name = user_info.get('name') or user_info.get('Display_Name')
+
+        if not user_id or not email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already exists"
+                detail="Could not retrieve user information from Zoho"
             )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user"
-            )
-    except HTTPException:
-        raise
+
+        # Create JWT token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={
+                "sub": user_id,
+                "email": email,
+                "name": name
+            },
+            expires_delta=access_token_expires
+        )
+
+        # Return token as JSON (you can also redirect to frontend with token in query params)
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
+
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during signup: {str(e)}"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication failed: {str(e)}"
         )
 
 
-@router.post("/signin", response_model=AuthResponse)
-async def signin(credentials: SignInRequest, request: Request, response: Response):
+@router.get("/me", response_model=UserInfoResponse)
+async def get_current_user_info(user: dict = Depends(get_current_user)):
     """
-    Sign in with email and password to obtain session tokens.
+    Get current authenticated user information from JWT token.
 
-    Returns session tokens in cookies and response headers.
-    SuperTokens automatically sets HTTP-only cookies for session management.
-
-    After signing in:
-    - Session cookies are automatically set
-    - All subsequent requests will include these cookies
-    - Protected endpoints will work automatically
+    Requires valid Bearer token in Authorization header.
     """
-    try:
-        # Use SuperTokens sign_in function to validate credentials
-        result = await sign_in("public", credentials.email, credentials.password)
-
-        recipe_user = None
-
-        # Check if result has status attribute or is a specific result type
-        if hasattr(result, 'status'):
-            if result.status == "OK":
-                recipe_user = result.user
-            elif result.status == "WRONG_CREDENTIALS_ERROR":
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid email or password"
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to sign in"
-                )
-        else:
-            # Successful sign in returns SignInOkResult directly
-            recipe_user = result.user
-
-        # Create a SuperTokens session - this sets the cookies automatically
-        # Create RecipeUserId from the string id
-        recipe_user_id = RecipeUserId(recipe_user.id)
-        await create_new_session(request, "public", recipe_user_id)
-
-        return AuthResponse(
-            message="Sign in successful. Session cookies have been set.",
-            user_id=recipe_user.id,
-            email=credentials.email
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during signin: {str(e)}"
-        )
+    return UserInfoResponse(
+        sub=user.get("sub", ""),
+        email=user.get("email", ""),
+        name=user.get("name", ""),
+        picture=user.get("picture")
+    )
 
 
-@router.get("/me", response_model=dict)
-async def get_current_user_info(session: SessionContainer = Depends(get_current_user)):
+@router.post("/logout")
+async def logout(user: dict = Depends(get_current_user)):
     """
-    Get current authenticated user information.
+    Logout endpoint.
 
-    Requires valid session token in Authorization header or cookies.
+    For JWT-based auth, the client should simply delete the token.
+    This endpoint validates the token is valid before confirming logout.
     """
-    user_id = session.get_user_id()
     return {
-        "user_id": user_id,
-        "session_handle": session.get_handle()
+        "message": "Logged out successfully. Please delete your access token on the client side."
     }
-
-
-@router.post("/signout")
-async def signout(session: SessionContainer = Depends(verify_session())):
-    """
-    Sign out the current user and revoke session tokens.
-
-    Requires valid session token.
-    """
-    try:
-        await session.revoke_session()
-        return {"message": "Signed out successfully"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during signout: {str(e)}"
-        )
