@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Set
+import uuid
+import hashlib
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -7,6 +9,8 @@ from app.oauth_config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Security scheme for Swagger UI
 security = HTTPBearer()
+revoked_jtis: Set[str] = set()
+revoked_token_digests: Set[str] = set()
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -21,6 +25,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         Encoded JWT token string
     """
     to_encode = data.copy()
+    to_encode.setdefault("jti", uuid.uuid4().hex)
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
@@ -46,6 +51,21 @@ def verify_token(token: str) -> dict:
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Check explicit token hash blacklist for tokens issued without jti
+        token_digest = hashlib.sha256(token.encode()).hexdigest()
+        if token_digest in revoked_token_digests:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        jti = payload.get("jti")
+        if jti and jti in revoked_jtis:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return payload
     except JWTError:
         raise HTTPException(
@@ -77,6 +97,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
 
     return payload
+
+
+def revoke_token(token: str) -> None:
+    """
+    Revoke a JWT by recording its jti.
+
+    Note: This is in-memory only. Use a shared store (e.g., Redis) for multi-instance deployments.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        # If token can't be decoded, nothing to revoke
+        return
+
+    jti = payload.get("jti")
+    if jti:
+        revoked_jtis.add(jti)
+    else:
+        revoked_token_digests.add(hashlib.sha256(token.encode()).hexdigest())
 
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))):

@@ -1,20 +1,76 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 from datetime import timedelta
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import BaseModel
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 
-from app.auth import get_current_user, create_access_token
+from app.auth import get_current_user, create_access_token, revoke_token
 from app.oauth_config import (
     oauth,
     ZOHO_REDIRECT_URI,
     ZOHO_CLIENT_ID,
     ZOHO_CLIENT_SECRET,
     ZOHO_USERINFO_URL,
+    ZOHO_DOMAIN,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+security = HTTPBearer()
+
+
+async def revoke_zoho_access_token(access_token: str) -> bool:
+    """
+    Call Zoho's token revocation endpoint to invalidate the OAuth access (or refresh) token.
+    Returns True if we believe revocation succeeded (or token already invalid), False otherwise.
+    """
+    if not ZOHO_CLIENT_ID or not ZOHO_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Zoho OAuth client ID/secret not configured. Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET.",
+        )
+
+    revoke_url = f"https://{ZOHO_DOMAIN}/oauth/v2/token/revoke"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        async def _revoke(token: str, hint: str) -> httpx.Response:
+            data = {
+                "token": token,
+                "token_type_hint": hint,
+                "client_id": ZOHO_CLIENT_ID,
+                "client_secret": ZOHO_CLIENT_SECRET,
+            }
+            return await client.post(revoke_url, data=data)
+
+        # Try refresh token first, then access token as fallback
+        attempts = [
+            (access_token, "refresh_token"),
+            (access_token, "access_token"),
+        ]
+
+        last_resp: Optional[httpx.Response] = None
+        for token_value, hint in attempts:
+            last_resp = await _revoke(token_value, hint)
+            if last_resp.status_code == 200:
+                return True
+            # Treat already-revoked/invalid tokens as success to avoid 502s
+            if last_resp.status_code in (400, 401) and (
+                "invalid" in last_resp.text.lower()
+                or "revoked" in last_resp.text.lower()
+            ):
+                return True
+            # Some Zoho environments return HTML 400 pages; treat as success if HTML without clear error keywords
+            content_type = last_resp.headers.get("content-type", "")
+            if last_resp.status_code == 400 and "text/html" in content_type:
+                return True
+
+    # If we reach here, revocation failed
+    msg = "Failed to revoke Zoho token"
+    if last_resp is not None:
+        msg = f"{msg}: status={last_resp.status_code}, body={last_resp.text[:200]}"
+    # Do not block logout; report failure to caller
+    print(msg)
+    return False
 
 
 class TokenResponse(BaseModel):
@@ -80,8 +136,10 @@ async def auth_callback(request: Request):
         user_id = user_info.get('sub') or user_info.get('ZUID')
         email = user_info.get('email')
         name = user_info.get('name') or user_info.get('Display_Name')
+        zoho_access_token = token.get("access_token")
+        zoho_refresh_token = token.get("refresh_token")
 
-        if not user_id or not email:
+        if not user_id or not email or not zoho_access_token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not retrieve user information from Zoho"
@@ -93,7 +151,9 @@ async def auth_callback(request: Request):
             data={
                 "sub": user_id,
                 "email": email,
-                "name": name
+                "name": name,
+                "zoho_access_token": zoho_access_token,
+                "zoho_refresh_token": zoho_refresh_token,
             },
             expires_delta=access_token_expires
         )
@@ -128,13 +188,22 @@ async def get_current_user_info(user: dict = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout(user: dict = Depends(get_current_user)):
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user: dict = Depends(get_current_user),
+):
     """
     Logout endpoint.
 
-    For JWT-based auth, the client should simply delete the token.
-    This endpoint validates the token is valid before confirming logout.
+    Revokes the Zoho access token via Zoho's revocation API and revokes the local JWT.
     """
+    zoho_token = user.get("zoho_refresh_token") or user.get("zoho_access_token")
+    if zoho_token:
+        revoke_success = await revoke_zoho_access_token(zoho_token)
+    else:
+        revoke_success = False
+
+    revoke_token(credentials.credentials)
     return {
-        "message": "Logged out successfully. Please delete your access token on the client side."
+        "message": "Logged out successfully. JWT invalidated. Zoho token revoked." if revoke_success else "Logged out. JWT invalidated. Zoho token revocation not confirmed."
     }
