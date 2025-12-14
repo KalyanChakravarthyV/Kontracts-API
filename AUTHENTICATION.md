@@ -12,12 +12,8 @@ The API uses Auth0 for login and then issues a short-lived JWT for subsequent re
 Set these environment variables (see `.env.example`):
 ```
 AUTH0_DOMAIN=<your-tenant>.auth0.com
-AUTH0_CLIENT_ID=<your-client-id>
-AUTH0_CLIENT_SECRET=<your-client-secret>
-AUTH0_REDIRECT_URI=http://localhost:8001/api/v1/auth/callback
 # AUTH0_AUDIENCE is optional (API Identifier)
 AUTH0_AUDIENCE=
-SECRET_KEY=<jwt-signing-key>
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 TOKEN_ISSUER=lease-accounting-api
 TOKEN_AUDIENCE=lease-accounting-api

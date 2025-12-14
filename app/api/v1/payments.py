@@ -11,9 +11,11 @@ from app.schemas.journals import (
     PaymentUpdate,
     PaymentResponse,
 )
-from app.auth import get_current_user
+from app.auth_utils import VerifyToken 
+auth = VerifyToken()  # Create an instance of the VerifyToken class
 
-router = APIRouter(prefix="/payments", tags=["payments"], dependencies=[Depends(get_current_user)])
+
+router = APIRouter(prefix="/payments", tags=["payments"], dependencies=[Depends(auth.verify)])
 
 
 # ==================== PAYMENT ENDPOINTS ====================

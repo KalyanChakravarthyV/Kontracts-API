@@ -8,9 +8,11 @@ from app.models.schedule import ASC842Schedule, IFRS16Schedule
 from app.schemas.schedule import ASC842ScheduleResponse, IFRS16ScheduleResponse, ScheduleEntryResponse
 from app.services.asc842_calculator import ASC842Calculator
 from app.services.ifrs16_calculator import IFRS16Calculator
-from app.auth import get_current_user
+from app.auth_utils import VerifyToken 
 
-router = APIRouter(prefix="/schedules", tags=["Schedules"], dependencies=[Depends(get_current_user)])
+auth = VerifyToken()  # Create an instance of the VerifyToken class
+
+router = APIRouter(prefix="/schedules", tags=["Schedules"], dependencies=[Depends(auth.verify)])
 
 
 @router.post("/asc842/{lease_id}", response_model=ASC842ScheduleResponse, status_code=status.HTTP_201_CREATED)

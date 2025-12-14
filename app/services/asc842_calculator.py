@@ -2,6 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import List, Dict, Tuple
+import logging
 import numpy as np
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,8 @@ from app.models.lease import Lease, LeaseScheduleEntry, LeaseClassification
 from app.models.schedule import ASC842Schedule
 from app.models.journals import Payments
 from .utils import make_json_safe
+
+logger = logging.getLogger(__name__)
 
 
 class ASC842Calculator:
@@ -23,7 +26,7 @@ class ASC842Calculator:
 
     def __init__(self, lease: Lease):
         self.lease = lease
-        print("lease: ", self.lease)
+        logger.debug("Initialized ASC842Calculator for lease %s", self.lease)
 
     def fetch_payments_from_db(self, db: Session) -> List[Dict]:
         """
@@ -45,7 +48,7 @@ class ASC842Calculator:
                 "payment_id": payment.id
             })
         
-        print("payment schedule: ", payment_schedule)
+        logger.debug("Payment schedule loaded for lease %s: %s", self.lease.id, payment_schedule)
         return payment_schedule
 
     # def calculate_period_rate_from_payments(self, payment_schedule: List[Dict]) -> Decimal:
@@ -86,7 +89,7 @@ class ASC842Calculator:
             "annual": Decimal("1"),
         }
         periods = frequency_map.get(self.lease.payment_frequency, Decimal("12"))
-        print("period_rate: ",  annual_rate / periods)
+        logger.debug("Calculated period_rate for lease %s: %s", self.lease.id, annual_rate / periods)
         return annual_rate / periods
 
     def calculate_present_value_from_payments(
@@ -139,7 +142,6 @@ class ASC842Calculator:
         Lease Liability = PV of lease payments
         ROU Asset = Lease Liability + Initial Direct Costs + Prepaid Rent - Lease Incentives
         """
-        print("per rate: ", period_rate)
         lease_liability = self.calculate_present_value_from_payments(
             payment_schedule, period_rate
         )
@@ -150,7 +152,7 @@ class ASC842Calculator:
             + self.lease.prepaid_rent
             - self.lease.lease_incentives
         )
-        print("lease, rou : ", lease_liability, rou_asset)
+        logger.debug("Initial measurements for lease %s: liability=%s, rou_asset=%s", self.lease.id, lease_liability, rou_asset)
         return rou_asset, lease_liability
 
     def generate_schedule(self, db: Session) -> ASC842Schedule:
@@ -158,17 +160,17 @@ class ASC842Calculator:
         
         # Fetch payments from database
         payment_schedule = self.fetch_payments_from_db(db)
-        print("payment schedule from db: ", payment_schedule)
+        logger.debug("Fetched payment schedule for lease %s", self.lease.id)
         
         # Calculate period rate based on payment frequency
         period_rate = self.calculate_period_rate_from_payments()
-        print("period rate from db: ", period_rate)
+        logger.debug("Period rate for lease %s: %s", self.lease.id, period_rate)
         
         # Calculate initial measurements
         rou_asset, lease_liability = self.calculate_initial_measurements(
             payment_schedule, period_rate
         )
-        print("rou_lease: ",rou_asset, lease_liability)
+        logger.debug("ROU asset and liability for lease %s: %s, %s", self.lease.id, rou_asset, lease_liability)
         
         # Generate schedule entries based on lease classification
         if self.lease.classification == LeaseClassification.FINANCE:
@@ -335,9 +337,13 @@ class ASC842Calculator:
         straight_line_expense = (total_lease_cost / Decimal(str(n_periods))).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
-
-        print("total_paymrnt: ", total_payments)
-        print("total_lease_cost: ", total_lease_cost)
+        logger.debug(
+            "Operating lease totals for lease %s: payments=%s, total_lease_cost=%s, straight_line_expense=%s",
+            self.lease.id,
+            total_payments,
+            total_lease_cost,
+            straight_line_expense,
+        )
         
         # Period 0: Initial measurement
         entries.append({
@@ -359,7 +365,6 @@ class ASC842Calculator:
         asset_balance = rou_asset
         
         for period_num, payment_info in enumerate(payment_schedule, start=1):
-            print("period num, payment_info: ", period_num, payment_info)
             payment_amount = payment_info["amount"]
             period_date = payment_info["due_date"]
             
@@ -379,10 +384,8 @@ class ASC842Calculator:
             interest_expense = (liability_beginning * period_rate).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
-            print("liability beginning: ", liability_beginning)
             # Step 3: Add accrued interest to liability
             liability_ending = liability_after_payment + interest_expense
-            print("liability ending: ", liability_ending)
             
             # Step 4: Amortization is plug to achieve straight-line expense
             amortization = straight_line_expense - interest_expense
@@ -393,11 +396,9 @@ class ASC842Calculator:
             if amortization > asset_balance:
                 amortization = asset_balance
             
-            print("assest beginning: ", asset_balance)
             asset_ending = asset_balance - amortization
-            print("assest ending: ", asset_ending)
             
-            entries.append({
+            entry = {
                 "period": period_num,
                 "period_date": period_date,
                 "lease_payment": payment_amount,
@@ -409,9 +410,14 @@ class ASC842Calculator:
                 "amortization": amortization,
                 "rou_asset_ending": max(asset_ending, Decimal("0")),
                 "total_expense": straight_line_expense,
-            })
-            
-            print("entries: ", entries[-1])
+            }
+            entries.append(entry)
+            logger.debug(
+                "Operating lease period %s for lease %s: %s",
+                period_num,
+                self.lease.id,
+                entry,
+            )
             # Update balances
             liability_balance = max(liability_ending, Decimal("0"))
             asset_balance = max(asset_ending, Decimal("0"))
