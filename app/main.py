@@ -10,9 +10,16 @@ from .api.v1 import leases, schedules, payments
 
 import sys
 import logging
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Basic logging to console for FastAPI/uvicorn output
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 # Basic logging to console for FastAPI/uvicorn output
 logging.basicConfig(
@@ -36,13 +43,18 @@ This API provides lease accounting schedule generation for ASC 842 (US GAAP) and
 ### Authentication
 
 All endpoints require authentication using Bearer tokens issued by Auth0.
+All endpoints require authentication using Bearer tokens issued by Auth0.
 
 **To get started:**
 1. Obtain an Auth0 access token for your API audience.
 2. Click the **🔓 Authorize** button and enter your token
 3. Or add `Bearer <token>` to the Authorization header manually
+1. Obtain an Auth0 access token for your API audience.
+2. Click the **🔓 Authorize** button and enter your token
+3. Or add `Bearer <token>` to the Authorization header manually
 
 ### OAuth2 Flow
+Use your Auth0-issued token for all API calls.
 Use your Auth0-issued token for all API calls.
     """,
     version="1.0.0",
@@ -74,7 +86,11 @@ def custom_openapi():
             "description": "Enter the Bearer token issued by Auth0"
         },
     }
+            "description": "Enter the Bearer token issued by Auth0"
+        },
+    }
 
+    # Apply security to all endpoints
     # Apply security to all endpoints
     if "paths" in openapi_schema:
         for path, path_item in openapi_schema["paths"].items():
