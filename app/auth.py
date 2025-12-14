@@ -1,16 +1,26 @@
 from datetime import datetime, timedelta
-from typing import Optional, Set
+from typing import Optional, Set, Dict, Any
 import uuid
 import hashlib
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from app.oauth_config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.oauth_config import (
+    SECRET_KEY,
+    ALGORITHM,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    TOKEN_ISSUER,
+    TOKEN_AUDIENCE,
+    AUTH0_DOMAIN,
+    AUTH0_AUDIENCE,
+)
 
 # Security scheme for Swagger UI
 security = HTTPBearer()
 revoked_jtis: Set[str] = set()
 revoked_token_digests: Set[str] = set()
+_auth0_jwks_cache: Dict[str, Any] = {}
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -26,6 +36,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """
     to_encode = data.copy()
     to_encode.setdefault("jti", uuid.uuid4().hex)
+    to_encode.setdefault("iss", TOKEN_ISSUER)
+    to_encode.setdefault("aud", TOKEN_AUDIENCE)
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
@@ -40,18 +52,12 @@ def verify_token(token: str) -> dict:
     """
     Verify and decode a JWT token.
 
-    Args:
-        token: JWT token string
-
-    Returns:
-        Decoded token payload
-
-    Raises:
-        HTTPException: If token is invalid or expired
+    Validates Auth0 RS256 tokens (if configured) and falls back to local HS256 tokens.
+    Also enforces revocation lists.
     """
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        # Check explicit token hash blacklist for tokens issued without jti
+    auth0_error: Optional[str] = None
+
+    def _check_revocation(payload: dict):
         token_digest = hashlib.sha256(token.encode()).hexdigest()
         if token_digest in revoked_token_digests:
             raise HTTPException(
@@ -66,13 +72,80 @@ def verify_token(token: str) -> dict:
                 detail="Token has been revoked",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+    # Attempt Auth0 RS256 validation first (if configured)
+    if AUTH0_DOMAIN:
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+            if unverified_header.get("alg") == "RS256":
+                jwks = _get_auth0_jwks()
+                rsa_key = {}
+                for key in jwks.get("keys", []):
+                    if key.get("kid") == unverified_header.get("kid"):
+                        rsa_key = {
+                            "kty": key.get("kty"),
+                            "kid": key.get("kid"),
+                            "use": key.get("use"),
+                            "n": key.get("n"),
+                            "e": key.get("e"),
+                        }
+                        break
+                if rsa_key:
+                    payload = jwt.decode(
+                        token,
+                        rsa_key,
+                        algorithms=["RS256"],
+                        audience=AUTH0_AUDIENCE or None,
+                        issuer=f"https://{AUTH0_DOMAIN}/",
+                        options={
+                            "verify_aud": bool(AUTH0_AUDIENCE),
+                            "verify_iss": True,
+                        },
+                    )
+                    _check_revocation(payload)
+                    return payload
+        except JWTError as e:
+            auth0_error = str(e)
+        except Exception as e:
+            auth0_error = str(e)
+
+    # Fallback to local HS256 token
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            issuer=TOKEN_ISSUER,
+            audience=TOKEN_AUDIENCE,
+            options={"verify_aud": bool(TOKEN_AUDIENCE), "verify_iss": bool(TOKEN_ISSUER)},
+        )
+        _check_revocation(payload)
         return payload
-    except JWTError:
+    except JWTError as e:
+        detail = "Could not validate credentials"
+        if auth0_error:
+            detail = f"Could not validate credentials (Auth0 error: {auth0_error})"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def _get_auth0_jwks() -> Dict[str, Any]:
+    """Fetch and cache Auth0 JWKS."""
+    if _auth0_jwks_cache:
+        return _auth0_jwks_cache
+    if not AUTH0_DOMAIN:
+        return {}
+    jwks_url = f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
+    try:
+        resp = httpx.get(jwks_url, timeout=5.0)
+        resp.raise_for_status()
+        _auth0_jwks_cache.update(resp.json())
+    except Exception:
+        return {}
+    return _auth0_jwks_cache
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -97,25 +170,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
 
     return payload
-
-
-def revoke_token(token: str) -> None:
-    """
-    Revoke a JWT by recording its jti.
-
-    Note: This is in-memory only. Use a shared store (e.g., Redis) for multi-instance deployments.
-    """
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        # If token can't be decoded, nothing to revoke
-        return
-
-    jti = payload.get("jti")
-    if jti:
-        revoked_jtis.add(jti)
-    else:
-        revoked_token_digests.add(hashlib.sha256(token.encode()).hexdigest())
 
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))):

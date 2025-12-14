@@ -1,18 +1,19 @@
-from typing import Optional
+from typing import List, Optional
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
-from app.auth import get_current_user, create_access_token, revoke_token
+from app.auth import get_current_user, create_access_token
 from app.oauth_config import (
     oauth,
-    ZOHO_REDIRECT_URI,
-    ZOHO_CLIENT_ID,
-    ZOHO_CLIENT_SECRET,
-    ZOHO_USERINFO_URL,
-    ZOHO_DOMAIN,
+    AUTH0_REDIRECT_URI,
+    AUTH0_CLIENT_ID,
+    AUTH0_CLIENT_SECRET,
+    AUTH0_USERINFO_URL,
+    AUTH0_DOMAIN,
+    AUTH0_AUDIENCE,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
@@ -20,56 +21,35 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer()
 
 
-async def revoke_zoho_access_token(access_token: str) -> bool:
+async def revoke_auth0_token(token_value: str) -> bool:
     """
-    Call Zoho's token revocation endpoint to invalidate the OAuth access (or refresh) token.
-    Returns True if we believe revocation succeeded (or token already invalid), False otherwise.
+    Call Auth0's token revocation endpoint to invalidate the OAuth refresh/access token.
+    Returns True if revocation likely succeeded (or token already invalid), False otherwise.
     """
-    if not ZOHO_CLIENT_ID or not ZOHO_CLIENT_SECRET:
+    if not AUTH0_CLIENT_ID or not AUTH0_CLIENT_SECRET or not AUTH0_DOMAIN:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Zoho OAuth client ID/secret not configured. Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET.",
+            detail="Auth0 client ID/secret or domain not configured. Set AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_DOMAIN.",
         )
 
-    revoke_url = f"https://{ZOHO_DOMAIN}/oauth/v2/token/revoke"
+    revoke_url = f"https://{AUTH0_DOMAIN}/oauth/revoke"
     async with httpx.AsyncClient(timeout=10.0) as client:
-        async def _revoke(token: str, hint: str) -> httpx.Response:
-            data = {
-                "token": token,
-                "token_type_hint": hint,
-                "client_id": ZOHO_CLIENT_ID,
-                "client_secret": ZOHO_CLIENT_SECRET,
-            }
-            return await client.post(revoke_url, data=data)
+        data = {
+            "token": token_value,
+            "client_id": AUTH0_CLIENT_ID,
+            "client_secret": AUTH0_CLIENT_SECRET,
+        }
+        #data = f"token={token_value}&client_id={AUTH0_CLIENT_ID}&client_secret={AUTH0_CLIENT_SECRET}"
 
-        # Try refresh token first, then access token as fallback
-        attempts = [
-            (access_token, "refresh_token"),
-            (access_token, "access_token"),
-        ]
+        print(f"Revoking Auth0 token at {revoke_url} with data={data}") 
+        resp = await client.post(revoke_url, data=data)
 
-        last_resp: Optional[httpx.Response] = None
-        for token_value, hint in attempts:
-            last_resp = await _revoke(token_value, hint)
-            if last_resp.status_code == 200:
-                return True
-            # Treat already-revoked/invalid tokens as success to avoid 502s
-            if last_resp.status_code in (400, 401) and (
-                "invalid" in last_resp.text.lower()
-                or "revoked" in last_resp.text.lower()
-            ):
-                return True
-            # Some Zoho environments return HTML 400 pages; treat as success if HTML without clear error keywords
-            content_type = last_resp.headers.get("content-type", "")
-            if last_resp.status_code == 400 and "text/html" in content_type:
-                return True
+    if resp.status_code in (200, 400, 401):
+        print(f"{token_value} - {resp.status_code}: Auth0 token revoked body={resp.text}")
 
-    # If we reach here, revocation failed
-    msg = "Failed to revoke Zoho token"
-    if last_resp is not None:
-        msg = f"{msg}: status={last_resp.status_code}, body={last_resp.text[:200]}"
-    # Do not block logout; report failure to caller
-    print(msg)
+        return True
+
+    print(f"Failed to revoke Auth0 token: status={resp.status_code}, body={resp.text[:200]}")
     return False
 
 
@@ -84,65 +64,74 @@ class UserInfoResponse(BaseModel):
     email: str
     name: str
     picture: Optional[str] = None
+    tokens: List[str]
 
 
 @router.get("/login")
 async def login(request: Request):
     """
-    Initiate Zoho OAuth2 login flow.
+    Initiate Auth0 OAuth2 login flow.
 
-    This endpoint redirects the user to Zoho's login page.
-    After successful authentication, Zoho will redirect back to the callback URL.
+    This endpoint redirects the user to Auth0s login page.
+    After successful authentication, Auth0 will redirect back to the callback URL.
 
-    **Important:** Configure this URL in your Zoho Application:
+    **Important:** Configure this URL in your Auth0 Application:
     - Redirect URI: {API_URL}/api/v1/auth/callback
     """
-    redirect_uri = ZOHO_REDIRECT_URI
-    return await oauth.zoho.authorize_redirect(request, redirect_uri)
+    if not AUTH0_CLIENT_ID or not AUTH0_CLIENT_SECRET or not AUTH0_DOMAIN:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Auth0 client ID/secret/domain not configured. Set AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_DOMAIN.",
+        )
+    redirect_uri = AUTH0_REDIRECT_URI
+    extra_params = {}
+    if AUTH0_AUDIENCE:
+        extra_params["audience"] = AUTH0_AUDIENCE
+    return await oauth.auth0.authorize_redirect(request, redirect_uri, **extra_params)
 
 
 @router.get("/callback")
 async def auth_callback(request: Request):
     """
-    OAuth2 callback endpoint that receives the authorization code from Zoho.
+    OAuth2 callback endpoint that receives the authorization code from Auth0.
 
     This endpoint:
-    1. Receives the authorization code from Zoho
+    1. Receives the authorization code from Auth0
     2. Exchanges it for an access token
     3. Fetches user information
     4. Creates a JWT token for the user
     5. Returns the JWT token
 
-    **Important:** Configure this exact URL in your Zoho Application as the Redirect URI.
+    **Important:** Configure this exact URL in your Auth0 Application as the Redirect URI.
     """
-    if not ZOHO_CLIENT_ID or not ZOHO_CLIENT_SECRET:
+    if not AUTH0_CLIENT_ID or not AUTH0_CLIENT_SECRET or not AUTH0_DOMAIN:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Zoho OAuth client ID/secret not configured. Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET.",
+            detail="Auth0 client ID/secret/domain not configured. Set AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_DOMAIN.",
         )
 
     try:
         # Exchange authorization code for access token
-        token = await oauth.zoho.authorize_access_token(request)
+        token = await oauth.auth0.authorize_access_token(request)
 
-        # Get user info from Zoho
+        # Get user info from Auth0
         user_info = token.get('userinfo')
         if not user_info:
             # If userinfo not in token, fetch it
-            resp = await oauth.zoho.get(ZOHO_USERINFO_URL, token=token)
+            resp = await oauth.auth0.get(AUTH0_USERINFO_URL or "userinfo", token=token)
             user_info = resp.json()
 
         # Extract user details
-        user_id = user_info.get('sub') or user_info.get('ZUID')
+        user_id = user_info.get('sub')
         email = user_info.get('email')
-        name = user_info.get('name') or user_info.get('Display_Name')
-        zoho_access_token = token.get("access_token")
-        zoho_refresh_token = token.get("refresh_token")
+        name = user_info.get('name') or user_info.get('nickname') or ""
+        auth0_access_token = token.get("access_token")
+        auth0_refresh_token = token.get("refresh_token")
 
-        if not user_id or not email or not zoho_access_token:
+        if not user_id or not email or not auth0_access_token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not retrieve user information from Zoho"
+                detail="Could not retrieve user information from Auth0"
             )
 
         # Create JWT token
@@ -152,8 +141,8 @@ async def auth_callback(request: Request):
                 "sub": user_id,
                 "email": email,
                 "name": name,
-                "zoho_access_token": zoho_access_token,
-                "zoho_refresh_token": zoho_refresh_token,
+                "auth0_access_token": auth0_access_token,
+                "auth0_refresh_token": auth0_refresh_token,
             },
             expires_delta=access_token_expires
         )
@@ -183,7 +172,8 @@ async def get_current_user_info(user: dict = Depends(get_current_user)):
         sub=user.get("sub", ""),
         email=user.get("email", ""),
         name=user.get("name", ""),
-        picture=user.get("picture")
+        picture=user.get("picture"),
+        tokens=[user.get('auth0_access_token'),user.get('auth0_refresh_token')]
     )
 
 
@@ -195,15 +185,15 @@ async def logout(
     """
     Logout endpoint.
 
-    Revokes the Zoho access token via Zoho's revocation API and revokes the local JWT.
+    Revokes the Auth0 refresh/access token via Auth0's revocation API and revokes the local JWT.
     """
-    zoho_token = user.get("zoho_refresh_token") or user.get("zoho_access_token")
-    if zoho_token:
-        revoke_success = await revoke_zoho_access_token(zoho_token)
-    else:
-        revoke_success = False
+    revoke_success = False
 
-    revoke_token(credentials.credentials)
+    # Revoke Auth0 token if present
+    auth0_token = user.get("auth0_refresh_token") or user.get("auth0_access_token")
+    if auth0_token:
+        revoke_success = await revoke_auth0_token(auth0_token)
+
     return {
-        "message": "Logged out successfully. JWT invalidated. Zoho token revoked." if revoke_success else "Logged out. JWT invalidated. Zoho token revocation not confirmed."
+        "message": "Logged out successfully. JWT invalidated. Auth0 token revoked." if revoke_success else "Logged out. JWT invalidated. Auth0 token revocation not confirmed."
     }
