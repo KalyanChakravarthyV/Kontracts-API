@@ -6,21 +6,25 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from .database import engine, Base
-from .api.v1 import auth, leases, schedules, payments
-from .oauth_config import SECRET_KEY, AUTH0_DOMAIN, AUTH0_CLIENT_ID
+from .api.v1 import leases, schedules, payments
 
 import sys
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Basic logging to console for FastAPI/uvicorn output
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 swagger_ui_init_oauth = {
     "usePkceWithAuthorizationCodeGrant": True,
     "scopes": "openid profile email offline_access",
     "clientSecret": "",  # hide/clear client secret field
 }
-if AUTH0_CLIENT_ID:
-    swagger_ui_init_oauth["clientId"] = AUTH0_CLIENT_ID
 
 app = FastAPI(
     title="Lease Accounting API",
@@ -31,20 +35,15 @@ This API provides lease accounting schedule generation for ASC 842 (US GAAP) and
 
 ### Authentication
 
-All endpoints except `/auth/login` and `/auth/callback` require authentication using Bearer tokens issued after Auth0 login.
+All endpoints require authentication using Bearer tokens issued by Auth0.
 
 **To get started:**
-1. Visit `/api/v1/auth/login` to initiate Auth0 login
-2. After successful login, you'll receive a JWT access token from this API
-3. Click the **🔓 Authorize** button and enter your token
-4. Or add `Bearer <token>` to the Authorization header manually
+1. Obtain an Auth0 access token for your API audience.
+2. Click the **🔓 Authorize** button and enter your token
+3. Or add `Bearer <token>` to the Authorization header manually
 
 ### OAuth2 Flow
-1. User visits `/api/v1/auth/login`
-2. Redirected to Auth0 login page
-3. After login, redirected back to `/api/v1/auth/callback`
-4. Receive JWT token in response
-5. Use token for all subsequent API calls
+Use your Auth0-issued token for all API calls.
     """,
     version="1.0.0",
     swagger_ui_parameters={
@@ -72,37 +71,15 @@ def custom_openapi():
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Enter the Bearer token returned after Auth0 login"
-        },
-        "Auth0OAuth2": {
-            "type": "oauth2",
-            "description": "Auth0 OAuth2 (authorization code with PKCE). Use Authorize to start the login redirect.",
-            "flows": {
-                "authorizationCode": {
-                    "authorizationUrl": f"https://{AUTH0_DOMAIN}/authorize" if AUTH0_DOMAIN else "/api/v1/auth/login",
-                    "tokenUrl": f"https://{AUTH0_DOMAIN}/oauth/token" if AUTH0_DOMAIN else "/api/v1/auth/callback",
-                    "scopes": {
-                        "openid": "OpenID",
-                        "profile": "Profile",
-                        "email": "Email",
-                        "offline_access": "Refresh tokens",
-                    },
-                },
-            },
+            "description": "Enter the Bearer token issued by Auth0"
         },
     }
 
-    # Apply security to all endpoints except auth login and callback
+    # Apply security to all endpoints
     if "paths" in openapi_schema:
         for path, path_item in openapi_schema["paths"].items():
-            # Skip auth endpoints (login, callback)
-            if "/auth/login" in path or "/auth/callback" in path:
-                continue
-
-            # Apply security to all methods in this path
             for method in path_item:
                 if method in ["get", "post", "put", "delete", "patch"]:
-                    # Add security requirement - Bearer token
                     path_item[method]["security"] = [
                         {"Bearer": []}
                     ]
@@ -111,10 +88,6 @@ def custom_openapi():
     return app.openapi_schema
 
 app.openapi = custom_openapi
-
-# Add session middleware for OAuth2
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
-
 
 @app.get("/docs", include_in_schema=False)
 async def overridden_swagger():
@@ -189,7 +162,6 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth.router, prefix="/api/v1")
 app.include_router(leases.router, prefix="/api/v1")
 app.include_router(schedules.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")

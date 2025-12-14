@@ -2,13 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
+from app.auth_utils import VerifyToken
 from app.database import get_db
 from app.models.lease import Lease
 from app.schemas.lease import LeaseCreate, LeaseUpdate, LeaseResponse
-from app.auth import get_current_user
+from app.auth_utils import VerifyToken
 
-# , dependencies=[Depends(get_current_user)]
-router = APIRouter(prefix="/leases", tags=["Leases"], dependencies=[Depends(get_current_user)])
+auth = VerifyToken()  # Create an instance of the VerifyToken class
+
+# , dependencies=[Depends(auth.verify)]
+router = APIRouter(prefix="/leases", tags=["Leases"], dependencies=[Depends(auth.verify)])
+
 
 @router.post("/", response_model=LeaseResponse, status_code=status.HTTP_201_CREATED)
 def create_lease(

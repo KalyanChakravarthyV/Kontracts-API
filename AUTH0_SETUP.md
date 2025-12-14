@@ -49,11 +49,7 @@ Copy these from the Auth0 dashboard:
 Set these in your `.env` (see `.env.example`):
 ```
 AUTH0_DOMAIN=your-tenant.auth0.com
-AUTH0_CLIENT_ID=your-auth0-client-id
-AUTH0_CLIENT_SECRET=your-auth0-client-secret
-AUTH0_REDIRECT_URI=http://localhost:8001/api/v1/auth/callback
 AUTH0_AUDIENCE=your-api-identifier   # optional
-SECRET_KEY=<jwt-signing-key>
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
@@ -71,5 +67,5 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 ## Production Checklist
 - Add production callback/logout URLs in Auth0.
 - Use HTTPS everywhere.
-- Rotate `CLIENT_SECRET` and `SECRET_KEY` periodically.
+- Rotate `CLIENT_SECRET` periodically.
 - Move JWT revocation storage to shared infra (e.g., Redis) if running multiple instances.
