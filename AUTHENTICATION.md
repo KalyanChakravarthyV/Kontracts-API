@@ -14,15 +14,14 @@ Set these environment variables (see `.env.example`):
 AUTH0_DOMAIN=<your-tenant>.auth0.com
 # AUTH0_AUDIENCE is optional (API Identifier)
 AUTH0_AUDIENCE=
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+AUTH0_HTTPX_VERIFY_SSL=true
 TOKEN_ISSUER=lease-accounting-api
 TOKEN_AUDIENCE=lease-accounting-api
 ```
 
 ## Using the token
-1) Hit `/api/v1/auth/login` in the browser and complete Auth0 auth.  
-2) Copy the `access_token` returned by `/api/v1/auth/callback`.  
-3) Send it as `Authorization: Bearer <token>` to protected endpoints or via the 🔓 Authorize button in Swagger UI.
+1) Obtain an Auth0 access token for your API audience outside of this service.  
+2) Send it as `Authorization: Bearer <token>` to protected endpoints or via the 🔓 Authorize button in Swagger UI.
 
 ### Logout
-- `POST /api/v1/auth/logout` revokes the Auth0 token via `https://<AUTH0_DOMAIN>/oauth/revoke` and invalidates the JWT (process-local; uses `jti` if present, otherwise hashes the raw token). Clients should still discard the token. For multi-instance deployments, back the JWT revocation store with shared infra (e.g., Redis).
+Auth0 token revocation is not hosted here; revoke tokens in Auth0 as needed. Clients should still discard tokens when logging out.

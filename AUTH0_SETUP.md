@@ -50,22 +50,17 @@ Set these in your `.env` (see `.env.example`):
 ```
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_AUDIENCE=your-api-identifier   # optional
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+AUTH0_HTTPX_VERIFY_SSL=true
 ```
 
 ## API Endpoints
-- `GET /api/v1/auth/login` – redirect to Auth0 login.
-- `GET /api/v1/auth/callback` – handles the code exchange, returns API JWT.
-- `GET /api/v1/auth/me` – returns claims from the API JWT.
-- `POST /api/v1/auth/logout` – revokes Auth0 token (refresh/access) and invalidates the API JWT.
+- Obtain Auth0 access tokens via your Auth0 tenant (no auth endpoints hosted here).
+- Use `Authorization: Bearer <access_token>` for all protected endpoints.
 
 ## Testing
 1. Open `http://localhost:8001/docs`.
-2. Click **Authorize** and follow the Auth0 login.
-3. Use the returned JWT for protected endpoints.
+2. Use the 🔓 Authorize button to paste a valid Auth0 access token for your API audience.
 
 ## Production Checklist
-- Add production callback/logout URLs in Auth0.
 - Use HTTPS everywhere.
-- Rotate `CLIENT_SECRET` periodically.
-- Move JWT revocation storage to shared infra (e.g., Redis) if running multiple instances.
+- Rotate Auth0 client secrets periodically.

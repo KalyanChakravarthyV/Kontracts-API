@@ -6,11 +6,8 @@ from app.auth_utils import VerifyToken
 from app.database import get_db
 from app.models.lease import Lease
 from app.schemas.lease import LeaseCreate, LeaseUpdate, LeaseResponse
-from app.auth_utils import VerifyToken
 
 auth = VerifyToken()  # Create an instance of the VerifyToken class
-
-# , dependencies=[Depends(auth.verify)]
 router = APIRouter(prefix="/leases", tags=["Leases"], dependencies=[Depends(auth.verify)])
 
 

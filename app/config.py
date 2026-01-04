@@ -3,17 +3,20 @@ from typing import List
 
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     auth0_domain: str
     auth0_api_audience: str
     auth0_issuer: str
     auth0_algorithms: str
-    auth0_valid_client_ids: List[str]
-    
-    HTTPX_VERIFY_SSL: bool = True
+    auth0_valid_client_ids: List[str] = []
+    auth0_httpx_verify_ssl: bool = True
 
     class Config:
-        env_file = ".auth0.env"
+        env_file = ".env"
+        case_sensitive = False  # allow uppercase env vars
+        extra = "ignore"
+        
 
 @lru_cache()
 def get_settings():

@@ -46,7 +46,7 @@ class VerifyToken:
 
         # Fetch JWKS (cache per-process)
         if not self._jwks_cache:
-            resp = requests.get(self.jwks_url, timeout=5, verify=self.config.HTTPX_VERIFY_SSL)
+            resp = requests.get(self.jwks_url, timeout=5, verify=self.config.auth0_httpx_verify_ssl)
             resp.raise_for_status()
             self._jwks_cache = resp.json()
 
@@ -70,13 +70,10 @@ class VerifyToken:
             logger.info("Obtained signing key for token verification")
         except Exception as error:
             traceback_str = traceback.format_exc()
-            logging.error("Exception caught! Details:\n%s", traceback_str)
+            logger.error("Exception caught! Details:\n%s", traceback_str)
             raise UnauthorizedException(str(error))
 
         try:
-            logger.debug("Decoding token with audience: %s, issuer: %s",
-                         self.config.auth0_api_audience,
-                         self.config.auth0_issuer)
             payload = jwt.decode(
                 token.credentials,
                 signing_key,
@@ -86,7 +83,7 @@ class VerifyToken:
             )
         except Exception as error:
             traceback_str = traceback.format_exc()
-            logging.error("Exception caught! Details:\n%s", traceback_str)       
+            logger.error("Exception caught! Details:\n%s", traceback_str)       
             raise UnauthorizedException(str(error))
     
         return payload
