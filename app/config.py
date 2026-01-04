@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     auth0_httpx_verify_ssl: bool = True
 
     class Config:
-        env_file = ".env"
+        env_file = None
         case_sensitive = False  # allow uppercase env vars
         extra = "ignore"
         
