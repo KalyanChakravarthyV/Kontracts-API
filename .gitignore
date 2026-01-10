@@ -62,3 +62,6 @@ node_modules/
 
 # Backup files
 *.bak
+
+# Local scripts/utilities
+*.local 

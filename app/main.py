@@ -29,7 +29,10 @@ app = FastAPI(
     ),
     version="1.0.0",
     swagger_ui_parameters={
-        "persistAuthorization": True,
+        "persistAuthorization": False,
+        "displayOperationId" : False,
+        "layout": "BaseLayout",
+        "syntaxHighlight": {"theme": "nord"}
     },
 )
 
@@ -46,9 +49,14 @@ def custom_openapi():
         routes=app.routes,
     )
 
-    # Add security schemes
-    openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})
-    openapi_schema["components"]["securitySchemes"]["HTTPBearer"] = {
+
+    # Disable the default HttpBearer
+    openapi_schema["components"]["securitySchemes"] = {}
+
+
+    # Add custom security schemes
+
+    openapi_schema["components"]["securitySchemes"]["Auth0Bearer"] = {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
