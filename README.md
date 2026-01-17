@@ -12,19 +12,33 @@ A FastAPI-based application for generating ASC 842 and IFRS 16 lease accounting 
 - **RESTful API**: Clean API design with automatic documentation
 - **Docker Deployment**: Complete containerization with Docker and docker-compose
 
-## Lease Standards Supported
+## Tech Stack
 
-### ASC 842 (US GAAP)
+- **Framework**: FastAPI 0.115.0
+- **Server**: Uvicorn 0.30.6
+- **Database**: PostgreSQL with SQLAlchemy 2.0.45
+- **Migrations**: Alembic 1.13.3
+- **Validation**: Pydantic 2.12.5
+- **Data Processing**: Pandas 2.3.3, NumPy 2.4.0
+- **Deployment**: Docker & Docker Compose
+- **Python**: 3.11+
+
+## Domain Knowledge
+
+### Lease Accounting Standards
+
+#### ASC 842 (US GAAP)
 - Finance Leases: Front-loaded expense recognition (interest + amortization)
-- Operating Leases: Straight-line expense recognition
+- Operating Leases: Straight-line total expense recognition (interest + amortization combined)
 - Right-of-Use (ROU) Asset and Lease Liability recognition
 - Incremental Borrowing Rate (IBR) for present value calculations
 
-### IFRS 16 (International)
+#### IFRS 16 (International)
 - Single model approach (all leases treated similarly)
 - Straight-line depreciation of ROU Asset
 - Interest expense using effective interest method
 - Front-loaded expense pattern
+- Uses discount rate (typically IBR) for present value calculations
 
 ## Project Structure
 
@@ -53,7 +67,7 @@ lease-accounting-api/
 ├── tests/                         # Test files
 ├── Dockerfile                     # Docker image configuration
 ├── docker-compose.yml             # Docker Compose setup
-├── requirements.txt               # Python dependencies
+├── pyproject.toml                 # Python dependencies
 └── README.md
 ```
 
@@ -95,7 +109,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
 
 3. Set up PostgreSQL and update the DATABASE_URL in .env
@@ -109,6 +123,13 @@ alembic upgrade head
 ```bash
 uvicorn app.main:app --reload
 ```
+
+## Development Guidelines
+
+- Keep business logic in `app/services/`, not in API endpoints.
+- Use Pydantic models for request/response validation.
+- Use type hints for function parameters and returns.
+- Add short comments only when logic is non-obvious.
 
 ## API Usage Examples
 
@@ -246,9 +267,9 @@ Stores payment records for leases and contracts with tracking information:
 - Paid date tracking
 - Association with contracts/leases
 
-## Key Calculations
+### Key Calculations
 
-### Present Value of Lease Payments
+#### Present Value of Lease Payments
 ```
 PV = PMT × [(1 - (1 + r)^-n) / r] + RV / (1 + r)^n
 ```
@@ -259,31 +280,71 @@ Where:
 - n = Number of periods
 - RV = Residual value
 
-### Initial Measurements
+#### Initial Measurements
 ```
 Lease Liability = PV of lease payments
 ROU Asset = Lease Liability + Initial Direct Costs + Prepaid Rent - Lease Incentives
 ```
 
-### Finance Lease (ASC 842)
+#### Finance Lease (ASC 842)
 ```
 Interest Expense = Beginning Lease Liability × Periodic Rate
 Principal Reduction = Payment - Interest Expense
 Amortization = ROU Asset / Lease Term (straight-line)
+Total Expense = Interest Expense + Amortization
 ```
 
-### Operating Lease (ASC 842)
+#### Operating Lease (ASC 842)
 ```
 Total Lease Cost = Sum of all payments + Initial Direct Costs
 Straight-line Expense = Total Lease Cost / Lease Term
 Amortization = Straight-line Expense - Interest Expense
+Interest Expense = Beginning Lease Liability × Periodic Rate
 ```
 
-### IFRS 16
+#### IFRS 16
 ```
 Interest Expense = Beginning Lease Liability × Discount Rate
 Depreciation = ROU Asset / Lease Term (straight-line)
 Total Expense = Interest Expense + Depreciation
+```
+
+## Business Logic Notes
+
+### Payment Frequencies
+- Monthly: 12 periods per year
+- Quarterly: 4 periods per year
+- Annual: 1 period per year
+- Periodic rate = annual rate / periods per year
+
+### Lease Classification (ASC 842)
+- Finance lease if any of:
+  - Transfer of ownership at end
+  - Purchase option reasonably certain to exercise
+  - Lease term ≥ major part of economic life (typically 75%)
+  - PV of payments ≥ substantially all of fair value (typically 90%)
+  - Asset is specialized with no alternative use
+- Operating lease if none of the above criteria are met
+
+## Debugging Calculations
+
+- Check intermediate values (PV, initial liability, initial ROU asset).
+- Verify periodic rates are derived from annual rates and payment frequency.
+- Ensure running balances decrease properly over the lease term.
+- Confirm total interest + principal equals total payments.
+- Verify ending liability approaches zero.
+
+## Database Migrations
+
+```bash
+# Generate migration
+alembic revision --autogenerate -m "description"
+
+# Apply migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
 ```
 
 ## Environment Variables
@@ -293,9 +354,40 @@ Total Expense = Interest Expense + Depreciation
 - `POSTGRES_PASSWORD`: Database password
 - `POSTGRES_DB`: Database name
 
+## Environment Setup Notes
+
+- Docker Compose sets up PostgreSQL automatically.
+- Local development requires a PostgreSQL instance and a configured `.env`.
+- Do not commit `.env` files; use `.env.example` as a template.
+
+## Common Tasks
+
+### Adding a New Lease Field
+1. Update ORM model in `app/models/lease.py`.
+2. Update Pydantic schema in `app/schemas/lease.py`.
+3. Generate an Alembic migration and apply it.
+4. Update calculation services if the field affects calculations.
+
+### Adding a New Calculation Standard
+1. Add a new calculator service in `app/services/`.
+2. Add ORM models for the schedule type.
+3. Add Pydantic schemas for the schedule type.
+4. Add API endpoints in `app/api/v1/schedules.py`.
+5. Create and apply a migration.
+
 ## Testing
 
 Interactive API documentation is available at `/docs` where you can test all endpoints directly in your browser.
+
+## Known Limitations
+
+- Variable lease payments are not supported yet.
+- Lease modifications require deleting and recreating schedules.
+- Short-term lease exemption (<12 months) is not supported.
+- Low-value asset exemption is not supported.
+- Residual value guarantees are simplified in calculations.
+- Sale-leaseback transactions are not supported.
+- Payment frequency changes during a lease term are not supported.
 
 ## License
 

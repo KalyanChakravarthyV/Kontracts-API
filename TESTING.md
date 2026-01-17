@@ -16,7 +16,7 @@ This project includes a complete test suite with:
 
 ```bash
 # Install test dependencies
-pip install -r requirements.txt
+pip install ".[test]"
 
 # Run all tests
 make test
@@ -324,7 +324,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install ".[test]"
 
       - name: Run tests
         env:

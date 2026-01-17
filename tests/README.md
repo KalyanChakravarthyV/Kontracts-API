@@ -19,7 +19,7 @@ tests/
 
 ```bash
 # Install test dependencies
-pip install -r requirements.txt
+pip install ".[test]"
 
 # Run all tests
 pytest
