@@ -5,7 +5,29 @@ Tests schedule generation, retrieval, and deletion for both ASC 842 and IFRS 16.
 """
 
 import pytest
+from datetime import datetime, timedelta
 from fastapi import status
+
+
+def _seed_payments(client, lease_id, lease_data, count=3):
+    commencement = lease_data["commencement_date"]
+    if isinstance(commencement, str):
+        start = datetime.fromisoformat(commencement)
+    else:
+        start = datetime.combine(commencement, datetime.min.time())
+    amount = lease_data["periodic_payment"]
+    payment_count = min(count, lease_data.get("lease_term_months", count))
+
+    for i in range(payment_count):
+        due_date = start + timedelta(days=30 * i)
+        payload = {
+            "contract_id": str(lease_id),
+            "amount": amount,
+            "due_date": due_date.isoformat(),
+            "status": "Scheduled",
+        }
+        response = client.post("/api/v1/payments/", json=payload)
+        assert response.status_code == status.HTTP_201_CREATED
 
 
 @pytest.mark.api
@@ -17,6 +39,7 @@ class TestScheduleEndpoints:
         # First create a lease
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
 
         # Generate ASC 842 schedule
         response = client.post(f"/api/v1/schedules/asc842/{lease_id}")
@@ -26,7 +49,7 @@ class TestScheduleEndpoints:
         assert data["lease_id"] == lease_id
         assert "initial_rou_asset" in data
         assert "initial_lease_liability" in data
-        assert "discount_rate" in data
+        assert "total_payments" in data
 
     def test_generate_asc842_schedule_lease_not_found(self, client):
         """Test generating schedule for non-existent lease"""
@@ -40,6 +63,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Try to generate again
@@ -68,6 +92,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Get the schedule
@@ -106,6 +131,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Get entries
@@ -150,6 +176,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Delete the schedule
@@ -184,6 +211,8 @@ class TestScheduleEndpoints:
         # Create lease
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
+        _seed_payments(client, lease_id, sample_lease_data)
 
         # Generate both schedules
         asc842_response = client.post(f"/api/v1/schedules/asc842/{lease_id}")
@@ -210,6 +239,7 @@ class TestScheduleWorkflow:
         # Create lease
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
 
         # Generate schedule
         create_response = client.post(f"/api/v1/schedules/asc842/{lease_id}")
@@ -233,6 +263,7 @@ class TestScheduleWorkflow:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Update lease
@@ -248,6 +279,7 @@ class TestScheduleWorkflow:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/asc842/{lease_id}")
 
         # Get entries

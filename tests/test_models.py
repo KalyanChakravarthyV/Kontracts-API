@@ -327,8 +327,9 @@ class TestScheduleModels:
             lease_id=sample_lease.id,
             initial_rou_asset=Decimal("151000.00"),
             initial_lease_liability=Decimal("150000.00"),
-            total_lease_cost=Decimal("180000.00"),
-            discount_rate=Decimal("0.05")
+            total_payments=Decimal("180000.00"),
+            total_interest=Decimal("30000.00"),
+            total_amortization=Decimal("151000.00")
         )
         db_session.add(schedule)
         db_session.commit()
@@ -337,6 +338,7 @@ class TestScheduleModels:
         assert schedule.id is not None
         assert schedule.lease_id == sample_lease.id
         assert schedule.initial_rou_asset == Decimal("151000.00")
+        assert schedule.total_payments == Decimal("180000.00")
 
     def test_create_ifrs16_schedule(self, db_session, sample_lease):
         """Test creating an IFRS 16 schedule"""
@@ -344,8 +346,9 @@ class TestScheduleModels:
             lease_id=sample_lease.id,
             initial_rou_asset=Decimal("151000.00"),
             initial_lease_liability=Decimal("150000.00"),
-            total_lease_payments=Decimal("180000.00"),
-            discount_rate=Decimal("0.05")
+            total_payments=Decimal("180000.00"),
+            total_interest=Decimal("30000.00"),
+            total_depreciation=Decimal("151000.00")
         )
         db_session.add(schedule)
         db_session.commit()
@@ -353,7 +356,7 @@ class TestScheduleModels:
 
         assert schedule.id is not None
         assert schedule.lease_id == sample_lease.id
-        assert schedule.total_lease_payments == Decimal("180000.00")
+        assert schedule.total_payments == Decimal("180000.00")
 
     def test_schedule_lease_relationship(self, db_session, sample_lease):
         """Test relationship between lease and ASC842 schedule"""
@@ -361,8 +364,9 @@ class TestScheduleModels:
             lease_id=sample_lease.id,
             initial_rou_asset=Decimal("151000.00"),
             initial_lease_liability=Decimal("150000.00"),
-            total_lease_cost=Decimal("180000.00"),
-            discount_rate=Decimal("0.05")
+            total_payments=Decimal("180000.00"),
+            total_interest=Decimal("30000.00"),
+            total_amortization=Decimal("151000.00")
         )
         db_session.add(schedule)
         db_session.commit()

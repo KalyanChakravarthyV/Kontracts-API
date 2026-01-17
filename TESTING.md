@@ -34,8 +34,8 @@ make test-api          # API endpoint tests
 
 ### PostgreSQL Best Practices Implemented
 
-1. **Separate Test Database**
-   - Connects to PostgreSQL database specified in tests/.env
+1. **Persistent Test Database**
+   - Starts (or reuses) a PostgreSQL container configured in tests/.env.test
    - Uses Alembic migrations to set up schema
    - Transaction rollback for test isolation
    - Each test runs in its own transaction that rolls back
@@ -244,13 +244,18 @@ make test-fast        # Skip slow tests
 ### Database Setup
 
 ```bash
-# 1. Create test database
-createdb test_lease_db
+# 1. Configure tests/.env.test for the container
+cat <<'EOF' > tests/.env.test
+TEST_POSTGRES_IMAGE=postgres:15-alpine
+TEST_POSTGRES_DB=kontracts_test
+TEST_POSTGRES_USER=kontracts
+TEST_POSTGRES_PASSWORD=kontracts
+TESTCONTAINERS_RYUK_DISABLED=true
+TESTCONTAINERS_REUSE_ENABLE=true
+TEST_PRESERVE_DB=true
+EOF
 
-# 2. Configure tests/.env with your DATABASE_URL
-echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_lease_db" > tests/.env
-
-# 3. Run tests
+# 2. Run tests
 make test
 
 # Or directly with pytest
@@ -258,12 +263,17 @@ pytest
 ```
 
 The test suite will automatically:
-- Connect to the database specified in tests/.env
+- Start an ephemeral PostgreSQL container
 - Create the kontracts schema
 - Run Alembic migrations
 - Roll back transactions after each test
 
-**Requirements**: PostgreSQL must be installed and a test database created
+Notes:
+- `TESTCONTAINERS_RYUK_DISABLED=true` disables the Ryuk sidecar so the container can be reused between test runs.
+- `TESTCONTAINERS_REUSE_ENABLE=true` allows reusing the same container instead of recreating it.
+- `TEST_PRESERVE_DB=true` preserves the schema after the test session; test data is still rolled back per test.
+
+**Requirements**: Docker must be running
 
 ## Test Data
 

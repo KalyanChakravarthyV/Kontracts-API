@@ -66,41 +66,38 @@ pytest -m "not slow"
 
 ## Test Database Configuration
 
-### PostgreSQL Test Database
+### Ephemeral PostgreSQL (Testcontainers)
 
 **IMPORTANT:** This project uses PostgreSQL-specific features (schemas, JSONB, functions like `gen_random_uuid()` and `now()`).
 
-The test suite connects to a PostgreSQL database specified in `tests/.env` file:
+The test suite starts a persistent PostgreSQL container via `testcontainers` and applies Alembic migrations automatically.
+
+Configure the container in `tests/.env.test`:
 
 ```bash
-# tests/.env
-DATABASE_URL=postgresql://user:pass@localhost:5432/test_db
+# tests/.env.test
+TEST_POSTGRES_IMAGE=postgres:15-alpine
+TEST_POSTGRES_DB=kontracts_test
+TEST_POSTGRES_USER=kontracts
+TEST_POSTGRES_PASSWORD=kontracts
 ```
 
 The test suite automatically:
-- Connects to the PostgreSQL database from tests/.env
+- Starts (or reuses) the container using `tests/.env.test`
 - Creates the kontracts schema
 - Runs Alembic migrations to set up the schema
 - Rolls back transactions after each test for isolation
 
+Note: Testcontainers reuse is enabled for the test PostgreSQL container. If you want to stop and remove it manually, use Docker to remove the container by name or label.
+
 **Setup:**
 
-1. Create a test database in PostgreSQL
-2. Configure `tests/.env` with your DATABASE_URL
+1. Ensure Docker is running
+2. Configure `tests/.env.test`
 3. Run tests:
 
 ```bash
 pytest
-```
-
-#### Example Database Setup
-
-```bash
-# Create test database
-createdb test_lease_db
-
-# Configure tests/.env
-echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_lease_db" > tests/.env
 ```
 
 ### Best Practices
@@ -180,8 +177,6 @@ Tests are designed to run in CI/CD pipelines:
 ```yaml
 # Example GitHub Actions
 - name: Run tests
-  env:
-    TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
   run: |
     pytest --cov=app --cov-report=xml
 ```
@@ -236,10 +231,7 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 ### Database Connection Errors
 
-Check your `TEST_DATABASE_URL` environment variable:
-```bash
-echo $TEST_DATABASE_URL
-```
+Verify Docker is running and `tests/.env.test` is present with valid settings.
 
 ### Schema Issues
 

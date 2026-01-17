@@ -10,12 +10,17 @@ Following API testing best practices:
 """
 
 import pytest
+from decimal import Decimal
 from fastapi import status
 
 
 @pytest.mark.api
 class TestLeaseEndpoints:
     """Test /api/v1/leases endpoints"""
+
+    @staticmethod
+    def _as_decimal(value):
+        return Decimal(str(value))
 
     def test_create_lease_success(self, client, sample_lease_data):
         """Test successfully creating a lease"""
@@ -127,7 +132,7 @@ class TestLeaseEndpoints:
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["periodic_payment"] == 6000.00
+        assert self._as_decimal(data["periodic_payment"]) == Decimal("6000.00")
         assert data["status"] == "amended"
         # Verify unchanged fields remain
         assert data["lease_name"] == sample_lease_data["lease_name"]
@@ -152,7 +157,9 @@ class TestLeaseEndpoints:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "inactive"
-        assert data["periodic_payment"] == sample_lease_data["periodic_payment"]
+        assert self._as_decimal(data["periodic_payment"]) == self._as_decimal(
+            sample_lease_data["periodic_payment"]
+        )
 
     def test_delete_lease_success(self, client, sample_lease_data):
         """Test successfully deleting a lease"""
@@ -209,8 +216,8 @@ class TestLeaseEndpoints:
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         # Verify decimal precision is maintained
-        assert data["periodic_payment"] == 5432.10
-        assert data["incremental_borrowing_rate"] == 0.0525
+        assert self._as_decimal(data["periodic_payment"]) == Decimal("5432.10")
+        assert self._as_decimal(data["incremental_borrowing_rate"]) == Decimal("0.0525")
 
 
 @pytest.mark.api

@@ -3,22 +3,35 @@ Pytest configuration and fixtures.
 
 This module provides shared fixtures and configuration for all tests.
 Following PostgreSQL best practices:
-- Use PostgreSQL database from tests/.env file
+    - Use PostgreSQL database from tests/.env.test file
 - Rollback transactions after each test
 - Isolate test data
 - Use Alembic migrations for test database setup
 """
 
 import os
-import pytest
-from typing import Generator
 from pathlib import Path
+from typing import Generator
+
+from dotenv import load_dotenv
+
+# Load test environment variables from tests/.env.test before testcontainers import.
+test_env_path = Path(__file__).parent / ".env.test"
+load_dotenv(dotenv_path=test_env_path, override=True)
+
+# Disable Ryuk to keep the container running after pytest exits.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+os.environ.setdefault("TESTCONTAINERS_REUSE_ENABLE", "true")
+
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
+from fastapi import Depends
 from fastapi.testclient import TestClient
+from fastapi.security import SecurityScopes, HTTPAuthorizationCredentials, HTTPBearer
 from alembic import command
 from alembic.config import Config
-from dotenv import load_dotenv
+from testcontainers.postgres import PostgresContainer
 
 from app.database import Base, get_db
 from app.main import app
@@ -31,26 +44,60 @@ from app.models.journals import (
     Payments,
     Documents,
 )
+from app.api.v1.leases import auth as leases_auth
+from app.api.v1.schedules import auth as schedules_auth
+from app.api.v1.payments import auth as payments_auth
 
-# Load test environment variables from tests/.env
-test_env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=test_env_path)
+def _env_truthy(value: str | None, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes")
+
+
+TEST_PRESERVE_DB = _env_truthy(os.getenv("TEST_PRESERVE_DB"), default=True)
+
+_pg_container = None
 
 
 @pytest.fixture(scope="session")
-def database_url():
+def postgres_container():
     """
-    Get database URL from tests/.env file.
+    Start a persistent PostgreSQL container for tests.
 
-    Returns a connection URL for the test PostgreSQL database.
+    Container settings are loaded from tests/.env.test.
     """
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
+    if not test_env_path.exists():
         raise ValueError(
-            "DATABASE_URL not found in tests/.env file.\n"
-            "Please create tests/.env with DATABASE_URL=postgresql://user:pass@host:port/dbname"
+            "tests/.env.test not found.\n"
+            "Please create tests/.env.test with TEST_POSTGRES_* values."
         )
-    return db_url
+
+    global _pg_container
+    if _pg_container is not None:
+        yield _pg_container
+        return
+
+    image = os.getenv("TEST_POSTGRES_IMAGE", "postgres:15-alpine")
+    dbname = os.getenv("TEST_POSTGRES_DB", "kontracts_test")
+    user = os.getenv("TEST_POSTGRES_USER", "kontracts")
+    password = os.getenv("TEST_POSTGRES_PASSWORD", "kontracts")
+
+    os.environ.setdefault("TESTCONTAINERS_REUSE_ENABLE", "true")
+
+    _pg_container = PostgresContainer(
+        image=image,
+        username=user,
+        password=password,
+        dbname=dbname,
+    )
+    _pg_container.start()
+    yield _pg_container
+
+
+@pytest.fixture(scope="session")
+def database_url(postgres_container):
+    """Return the container's connection URL for the test database."""
+    return postgres_container.get_connection_url()
 
 
 @pytest.fixture(scope="session")
@@ -61,7 +108,7 @@ def engine(database_url):
     Scope: session - created once per test session
     PostgreSQL best practice: Use a separate test database
 
-    This connects to the PostgreSQL database specified in tests/.env
+    This connects to the PostgreSQL database from the ephemeral container
     """
     # Create engine
     test_engine = create_engine(
@@ -75,8 +122,14 @@ def engine(database_url):
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS kontracts"))
 
     # Run Alembic migrations to set up the database schema
-    alembic_cfg = Config("alembic.ini")
+    os.environ["DATABASE_URL"] = database_url
+    os.environ["SCHEMA_NAME"] = "kontracts"
+    alembic_cfg = Config(str(Path(__file__).parent / "alembic.ini"))
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    alembic_cfg.set_main_option(
+        "script_location",
+        str(Path(__file__).resolve().parents[1] / "alembic"),
+    )
 
     # Run migrations
     command.upgrade(alembic_cfg, "head")
@@ -84,11 +137,12 @@ def engine(database_url):
     yield test_engine
 
     # Cleanup: drop all tables, types, and schema after entire test session
-    with test_engine.begin() as conn:
-        # Drop the schema with all its contents
-        conn.execute(text("DROP SCHEMA IF EXISTS kontracts CASCADE"))
-        # Drop enum types that may have been created in public schema
-        conn.execute(text("DROP TYPE IF EXISTS leaseclassification CASCADE"))
+    if not TEST_PRESERVE_DB:
+        with test_engine.begin() as conn:
+            # Drop the schema with all its contents
+            conn.execute(text("DROP SCHEMA IF EXISTS kontracts CASCADE"))
+            # Drop enum types that may have been created in public schema
+            conn.execute(text("DROP TYPE IF EXISTS leaseclassification CASCADE"))
     test_engine.dispose()
 
 
@@ -114,9 +168,14 @@ def db_session(engine) -> Generator[Session, None, None]:
 
     yield session
 
-    # Rollback transaction to undo all changes made during the test
+    # Always rollback per-test changes to keep isolation.
+    # TEST_PRESERVE_DB only controls whether the schema is dropped after the session.
     session.close()
-    transaction.rollback()
+    try:
+        transaction.rollback()
+    except Exception:
+        # Transaction may already be inactive if the test triggered a rollback.
+        pass
     connection.close()
 
 
@@ -133,7 +192,16 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         finally:
             pass  # Don't close here, managed by db_session fixture
 
+    async def override_verify_token(
+        security_scopes: SecurityScopes,
+        token: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    ):
+        return {"sub": "test-user", "scope": ""}
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[leases_auth.verify] = override_verify_token
+    app.dependency_overrides[schedules_auth.verify] = override_verify_token
+    app.dependency_overrides[payments_auth.verify] = override_verify_token
 
     with TestClient(app) as test_client:
         yield test_client
