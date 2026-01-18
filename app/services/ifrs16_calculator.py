@@ -28,18 +28,31 @@ class IFRS16Calculator:
     def __init__(self, lease: Lease):
         self.lease = lease
 
+    def calculate_term_months(self) -> int:
+        """Calculate lease term in months from commencement and end dates"""
+        if self.lease.end_date <= self.lease.commencement_date:
+            raise ValueError("end_date must be after commencement_date")
+        delta = relativedelta(self.lease.end_date, self.lease.commencement_date)
+        months = delta.years * 12 + delta.months
+        if delta.days > 0:
+            months += 1
+        if months <= 0:
+            raise ValueError("Lease term must be at least one month")
+        return months
+
     def calculate_payment_periods(self) -> int:
         """Calculate number of payment periods based on frequency"""
+        term_months = self.calculate_term_months()
         frequency_map = {
-            "monthly": self.lease.lease_term_months,
-            "quarterly": self.lease.lease_term_months // 3,
-            "annual": self.lease.lease_term_months // 12,
+            "monthly": term_months,
+            "quarterly": term_months // 3,
+            "annual": term_months // 12,
         }
-        return frequency_map.get(self.lease.payment_frequency, self.lease.lease_term_months)
+        return frequency_map.get(self.lease.payment_frequency, term_months)
 
     def calculate_period_rate(self) -> Decimal:
         """Calculate periodic interest rate from annual discount rate"""
-        annual_rate = self.lease.discount_rate
+        annual_rate = self.lease.discount_rate / 100
         frequency_map = {
             "monthly": Decimal("12"),
             "quarterly": Decimal("4"),

@@ -18,7 +18,7 @@ class LeaseBase(BaseModel):
 
     # Lease terms
     commencement_date: date = Field(..., description="Lease commencement date")
-    lease_term_months: int = Field(..., gt=0, description="Lease term in months")
+    end_date: date = Field(..., description="Lease end date for calculating term")
     next_payment: Optional[datetime] = Field(default=None, description="Next payment due date")
 
     # Financial details
@@ -31,8 +31,8 @@ class LeaseBase(BaseModel):
     residual_value: Decimal = Field(default=Decimal("0"), description="Residual value guarantee")
 
     # Discount rates (for lease accounting compliance)
-    incremental_borrowing_rate: Optional[Decimal] = Field(default=None, description="Incremental borrowing rate (IBR) as decimal (e.g., 0.05 for 5%)")
-    discount_rate: Optional[Decimal] = Field(default=None, description="Discount rate for IFRS 16 as decimal")
+    incremental_borrowing_rate: Decimal = Field(..., description="Incremental borrowing rate (IBR) as percent (e.g., 5 for 5%)")
+    discount_rate: Optional[Decimal] = Field(default=None, description="Discount rate for IFRS 16 as percent (e.g., 5 for 5%)")
 
     # Classification
     classification: LeaseClassification = Field(default=LeaseClassification.OPERATING, description="Lease classification")
@@ -50,7 +50,7 @@ class LeaseUpdate(BaseModel):
     status: Optional[str] = None
     document_id: Optional[str] = None
     commencement_date: Optional[date] = None
-    lease_term_months: Optional[int] = None
+    end_date: Optional[date] = None
     next_payment: Optional[datetime] = None
     periodic_payment: Optional[Decimal] = None
     payment_frequency: Optional[str] = None

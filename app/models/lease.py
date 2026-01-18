@@ -28,7 +28,7 @@ class Lease(Base):
 
     # Lease terms
     commencement_date = Column(Date, nullable=False)
-    lease_term_months = Column(Integer, nullable=False)
+    end_date = Column(Date, nullable=False)
     next_payment = Column(DateTime, nullable=True)  # From Contracts - next payment due date
 
     # Financial details
@@ -41,7 +41,7 @@ class Lease(Base):
     residual_value = Column(Numeric(15, 2), default=0)
 
     # Discount rates (for lease accounting compliance)
-    incremental_borrowing_rate = Column(Numeric(8, 6), nullable=True)  # IBR for ASC 842
+    incremental_borrowing_rate = Column(Numeric(8, 6), nullable=False)  # IBR for ASC 842
     discount_rate = Column(Numeric(8, 6), nullable=True)  # For IFRS 16
 
     # Classification

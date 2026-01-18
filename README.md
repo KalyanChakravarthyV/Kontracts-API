@@ -143,15 +143,15 @@ curl -X POST "http://localhost:8001/api/v1/leases/" \
     "lessor_name": "ABC Properties",
     "lessee_name": "XYZ Corporation",
     "commencement_date": "2024-01-01",
-    "lease_term_months": 60,
+    "end_date": "2029-01-01",
     "periodic_payment": 10000.00,
     "payment_frequency": "monthly",
     "initial_direct_costs": 5000.00,
     "prepaid_rent": 10000.00,
     "lease_incentives": 2000.00,
     "residual_value": 0.00,
-    "incremental_borrowing_rate": 0.05,
-    "discount_rate": 0.05,
+    "incremental_borrowing_rate": 5,
+    "discount_rate": 5,
     "classification": "operating"
   }'
 ```

@@ -209,7 +209,7 @@ class TestLeaseEndpoints:
     def test_lease_decimal_precision(self, client, sample_lease_data):
         """Test that decimal values maintain precision"""
         sample_lease_data["periodic_payment"] = 5432.10
-        sample_lease_data["incremental_borrowing_rate"] = 0.0525
+        sample_lease_data["incremental_borrowing_rate"] = 5.25
 
         response = client.post("/api/v1/leases/", json=sample_lease_data)
 
@@ -217,7 +217,7 @@ class TestLeaseEndpoints:
         data = response.json()
         # Verify decimal precision is maintained
         assert self._as_decimal(data["periodic_payment"]) == Decimal("5432.10")
-        assert self._as_decimal(data["incremental_borrowing_rate"]) == Decimal("0.0525")
+        assert self._as_decimal(data["incremental_borrowing_rate"]) == Decimal("5.25")
 
 
 @pytest.mark.api

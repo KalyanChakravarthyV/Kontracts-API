@@ -39,7 +39,7 @@ class TestLeaseModel:
         assert lease.id is not None
         assert lease.lease_name == "Office Space Lease"
         assert lease.classification == LeaseClassification.OPERATING
-        assert lease.lease_term_months == 36
+        assert lease.end_date == date(2027, 1, 1)
         assert lease.periodic_payment == Decimal("5000.00")
         assert lease.created_at is not None
 
@@ -53,7 +53,7 @@ class TestLeaseModel:
         assert lease.id is not None
         assert lease.classification == LeaseClassification.FINANCE
         assert lease.residual_value == Decimal("50000.00")
-        assert lease.incremental_borrowing_rate == Decimal("0.06")
+        assert lease.incremental_borrowing_rate == Decimal("6")
 
     def test_lease_required_fields(self, db_session):
         """Test that required fields are enforced"""
@@ -72,7 +72,7 @@ class TestLeaseModel:
             lessor_name="Test Lessor",
             lessee_name="Test Lessee",
             commencement_date=date(2024, 1, 1),
-            lease_term_months=12,
+            end_date=date(2025, 1, 1),
             periodic_payment=Decimal("1000.00")
         )
         db_session.add(lease)

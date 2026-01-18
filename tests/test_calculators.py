@@ -16,13 +16,22 @@ from app.models.lease import Lease
 from app.models.journals import Payments
 
 
+def _term_months(lease: Lease) -> int:
+    delta = relativedelta(lease.end_date, lease.commencement_date)
+    months = delta.years * 12 + delta.months
+    if delta.days > 0:
+        months += 1
+    return months
+
+
 def _payment_periods(lease: Lease) -> int:
+    term_months = _term_months(lease)
     frequency_map = {
-        "monthly": lease.lease_term_months,
-        "quarterly": lease.lease_term_months // 3,
-        "annual": lease.lease_term_months // 12,
+        "monthly": term_months,
+        "quarterly": term_months // 3,
+        "annual": term_months // 12,
     }
-    return frequency_map.get(lease.payment_frequency, lease.lease_term_months)
+    return frequency_map.get(lease.payment_frequency, term_months)
 
 
 def _seed_payments(db_session, lease: Lease, count: int | None = None) -> int:
@@ -66,7 +75,7 @@ class TestASC842Calculator:
         assert isinstance(pv, Decimal)
         assert pv > 0
         # PV should be less than total payments
-        total_payments = sample_lease.periodic_payment * sample_lease.lease_term_months
+        total_payments = sample_lease.periodic_payment * _term_months(sample_lease)
         assert pv < total_payments
 
     def test_calculate_initial_rou_asset(self, db_session, sample_lease):
@@ -261,13 +270,13 @@ class TestCalculatorEdgeCases:
             lessor_name="Lessor",
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
-            lease_term_months=12,
+            end_date=date(2025, 1, 1),
             periodic_payment=Decimal("1000.00"),
             initial_direct_costs=Decimal("0"),
             prepaid_rent=Decimal("0"),
             lease_incentives=Decimal("0"),
-            incremental_borrowing_rate=Decimal("0.05"),
-            discount_rate=Decimal("0.05")
+            incremental_borrowing_rate=Decimal("5"),
+            discount_rate=Decimal("5")
         )
         db_session.add(lease)
         db_session.commit()
@@ -286,10 +295,10 @@ class TestCalculatorEdgeCases:
             lessor_name="Lessor",
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
-            lease_term_months=24,
+            end_date=date(2026, 1, 1),
             periodic_payment=Decimal("5000.00"),
-            incremental_borrowing_rate=Decimal("0.15"),  # 15%
-            discount_rate=Decimal("0.15")
+            incremental_borrowing_rate=Decimal("15"),  # 15%
+            discount_rate=Decimal("15")
         )
         db_session.add(lease)
         db_session.commit()
@@ -301,7 +310,7 @@ class TestCalculatorEdgeCases:
         pv = calculator.calculate_present_value_from_payments(payment_schedule, period_rate)
 
         # Higher discount rate should result in lower PV
-        assert pv < lease.periodic_payment * lease.lease_term_months
+        assert pv < lease.periodic_payment * _term_months(lease)
 
     def test_long_term_lease(self, db_session):
         """Test calculation for long-term lease (10 years)"""
@@ -310,10 +319,10 @@ class TestCalculatorEdgeCases:
             lessor_name="Lessor",
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
-            lease_term_months=120,  # 10 years
+            end_date=date(2034, 1, 1),  # 10 years
             periodic_payment=Decimal("10000.00"),
-            incremental_borrowing_rate=Decimal("0.06"),
-            discount_rate=Decimal("0.06")
+            incremental_borrowing_rate=Decimal("6"),
+            discount_rate=Decimal("6")
         )
         db_session.add(lease)
         db_session.commit()
@@ -339,11 +348,11 @@ class TestCalculatorEdgeCases:
             lessor_name="Lessor",
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
-            lease_term_months=36,
+            end_date=date(2027, 1, 1),
             periodic_payment=Decimal("15000.00"),
             payment_frequency="quarterly",
-            incremental_borrowing_rate=Decimal("0.05"),
-            discount_rate=Decimal("0.05")
+            incremental_borrowing_rate=Decimal("5"),
+            discount_rate=Decimal("5")
         )
         db_session.add(lease)
         db_session.commit()

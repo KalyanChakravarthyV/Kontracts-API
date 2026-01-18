@@ -5,8 +5,17 @@ Tests schedule generation, retrieval, and deletion for both ASC 842 and IFRS 16.
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from fastapi import status
+
+
+def _term_months(commencement: date, end_date: date) -> int:
+    delta = relativedelta(end_date, commencement)
+    months = delta.years * 12 + delta.months
+    if delta.days > 0:
+        months += 1
+    return months
 
 
 def _seed_payments(client, lease_id, lease_data, count=3):
@@ -15,8 +24,11 @@ def _seed_payments(client, lease_id, lease_data, count=3):
         start = datetime.fromisoformat(commencement)
     else:
         start = datetime.combine(commencement, datetime.min.time())
+    end_date = lease_data["end_date"]
+    if isinstance(end_date, str):
+        end_date = date.fromisoformat(end_date)
     amount = lease_data["periodic_payment"]
-    payment_count = min(count, lease_data.get("lease_term_months", count))
+    payment_count = min(count, _term_months(start.date(), end_date))
 
     for i in range(payment_count):
         due_date = start + timedelta(days=30 * i)
