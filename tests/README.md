@@ -76,10 +76,10 @@ Configure the container in `tests/.env.test`:
 
 ```bash
 # tests/.env.test
-TEST_POSTGRES_IMAGE=postgres:15-alpine
-TEST_POSTGRES_DB=kontracts_test
-TEST_POSTGRES_USER=kontracts
-TEST_POSTGRES_PASSWORD=kontracts
+TEST_POSTGRES_IMAGE=postgres:17-alpine
+TEST_POSTGRES_DB=Kontracts_test
+TEST_POSTGRES_USER=kontracts_user
+TEST_POSTGRES_PASSWORD=kontracts_user_pwd
 ```
 
 The test suite automatically:

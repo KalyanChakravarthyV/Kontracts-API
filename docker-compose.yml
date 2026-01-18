@@ -1,18 +1,16 @@
-version: '3.8'
-
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-leaseuser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leasepass}
-      POSTGRES_DB: ${POSTGRES_DB:-leasedb}
+      POSTGRES_USER: ${POSTGRES_USER:-kontracts_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kontracts_user_pwd}
+      POSTGRES_DB: ${POSTGRES_DB:-Kontracts}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U leaseuser"]
+      test: ["CMD-SHELL", "pg_isready -d  $POSTGRES_DB -U $POSTGRES_USER"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,13 +20,13 @@ services:
     ports:
       - "8001:8001"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://leaseuser:leasepass@db:5432/leasedb}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://kontracts_user:kontracts_user_pwd@db:5432/Kontracts?sslmode=prefer}
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./app:/app/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 
 volumes:
   postgres_data:

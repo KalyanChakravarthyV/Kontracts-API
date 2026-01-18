@@ -27,6 +27,9 @@ if SSL_CA_CERT_PATH:
         logger.info("SSL certificate loaded from: %s", cert_path)
     else:
         logger.warning("SSL certificate not found at %s", cert_path)
+else:
+    logger.warning("SSL mode switching 'prefer'")
+    connect_args = {"sslmode": "prefer"}
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -350,9 +350,9 @@ alembic downgrade -1
 ## Environment Variables
 
 - `DATABASE_URL`: PostgreSQL connection string
-- `POSTGRES_USER`: Database user
-- `POSTGRES_PASSWORD`: Database password
-- `POSTGRES_DB`: Database name
+- `POSTGRES_USER`: Database user (`kontracts_user`)
+- `POSTGRES_PASSWORD`: Database password (`kontracts_user_pwd`)
+- `POSTGRES_DB`: Database name (`Kontracts`)
 
 ## Environment Setup Notes
 

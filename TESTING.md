@@ -246,10 +246,10 @@ make test-fast        # Skip slow tests
 ```bash
 # 1. Configure tests/.env.test for the container
 cat <<'EOF' > tests/.env.test
-TEST_POSTGRES_IMAGE=postgres:15-alpine
-TEST_POSTGRES_DB=kontracts_test
-TEST_POSTGRES_USER=kontracts
-TEST_POSTGRES_PASSWORD=kontracts
+TEST_POSTGRES_IMAGE=postgres:17-alpine
+TEST_POSTGRES_DB=Kontracts_test
+TEST_POSTGRES_USER=kontracts_user
+TEST_POSTGRES_PASSWORD=kontracts_user_pwd
 TESTCONTAINERS_RYUK_DISABLED=true
 TESTCONTAINERS_REUSE_ENABLE=true
 TEST_PRESERVE_DB=true
@@ -307,8 +307,9 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_lease_db
+          POSTGRES_USER: kontracts_user
+          POSTGRES_PASSWORD: kontracts_user_pwd
+          POSTGRES_DB: Kontracts_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -328,7 +329,7 @@ jobs:
 
       - name: Run tests
         env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_lease_db
+          TEST_DATABASE_URL: postgresql://kontracts_user:kontracts_user_pwd@localhost:5432/Kontracts_test
         run: pytest --cov=app --cov-report=xml
 
       - name: Upload coverage

@@ -42,7 +42,7 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://leaseuser:leasepass@localhost:5432/leasedb")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kontracts_user:kontracts_user_pwd@localhost:5432/Kontracts")
 SCHEMA_NAME = os.getenv("SCHEMA_NAME", "kontracts")
 
 config.set_main_option('sqlalchemy.url', DATABASE_URL)

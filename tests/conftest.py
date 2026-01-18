@@ -77,10 +77,10 @@ def postgres_container():
         yield _pg_container
         return
 
-    image = os.getenv("TEST_POSTGRES_IMAGE", "postgres:15-alpine")
-    dbname = os.getenv("TEST_POSTGRES_DB", "kontracts_test")
-    user = os.getenv("TEST_POSTGRES_USER", "kontracts")
-    password = os.getenv("TEST_POSTGRES_PASSWORD", "kontracts")
+    image = os.getenv("TEST_POSTGRES_IMAGE", "postgres:17-alpine")
+    dbname = os.getenv("TEST_POSTGRES_DB", "Kontracts_test")
+    user = os.getenv("TEST_POSTGRES_USER", "kontracts_user")
+    password = os.getenv("TEST_POSTGRES_PASSWORD", "kontracts_user_pwd")
 
     os.environ.setdefault("TESTCONTAINERS_REUSE_ENABLE", "true")
 
