@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from typing import List
 from io import BytesIO
 import pandas as pd
-from openpyxl.utils import get_column_letter
 
 from app.database import get_db
 from app.models.lease import Lease, LeaseScheduleEntry
@@ -21,6 +20,10 @@ router = APIRouter(prefix="/schedules", tags=["Schedules"], dependencies=[Depend
 EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 CSV_MEDIA_TYPE = "text/csv"
 
+def clear_timezone(dataFrame: pd.DataFrame) -> pd.DataFrame:
+    for col in dataFrame.select_dtypes(include=['datetimetz']).columns:
+        dataFrame[col] =    dataFrame[col].dt.tz_localize(None) # Or .dt.tz_convert(None)
+    return dataFrame
 
 def _entries_to_frame(entries: List[LeaseScheduleEntry]) -> pd.DataFrame:
     return pd.DataFrame(
@@ -41,6 +44,7 @@ def _entries_to_frame(entries: List[LeaseScheduleEntry]) -> pd.DataFrame:
             for entry in entries
         ]
     )
+ 
 
 
 def _schedule_summary_to_frame(schedule, schedule_type: str) -> pd.DataFrame:
@@ -62,36 +66,11 @@ def _schedule_summary_to_frame(schedule, schedule_type: str) -> pd.DataFrame:
     return pd.DataFrame([summary])
 
 
-def _normalize_date_columns(frame: pd.DataFrame) -> pd.DataFrame:
-    date_columns = [col for col in frame.columns if col.endswith("_date")]
-    datetime_columns = [col for col in frame.columns if col.endswith("_at")]
-    for col in date_columns + datetime_columns:
-        if col in frame.columns:
-            frame[col] = pd.to_datetime(frame[col], errors="coerce")
-    return frame
-
-
-def _format_date_columns(worksheet, frame: pd.DataFrame) -> None:
-    for idx, col in enumerate(frame.columns, start=1):
-        if col.endswith("_date"):
-            number_format = "yyyy-mm-dd"
-        elif col.endswith("_at"):
-            number_format = "yyyy-mm-dd hh:mm:ss"
-        else:
-            continue
-        col_letter = get_column_letter(idx)
-        for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=idx, max_col=idx):
-            for cell in row:
-                cell.number_format = number_format
-
-
 def _excel_response(frames: dict[str, pd.DataFrame], filename: str) -> StreamingResponse:
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, frame in frames.items():
-            frame = _normalize_date_columns(frame.copy())
-            frame.to_excel(writer, sheet_name=sheet_name, index=False)
-            _format_date_columns(writer.sheets[sheet_name], frame)
+            clear_timezone(frame).to_excel(writer, sheet_name=sheet_name, index=False)
     output.seek(0)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(output, media_type=EXCEL_MEDIA_TYPE, headers=headers)
