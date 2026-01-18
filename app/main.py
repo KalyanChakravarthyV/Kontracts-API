@@ -17,8 +17,18 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
+
+# Define the server URLs and descriptions
+api_servers = [
+    {"url": "https://api.kontracts.pro/", "description": "Production Server"},
+    {"url": "https://staging.kontracts.pro", "description": "Staging Server"},
+    {"url": "http://localhost:8001", "description": "Local Development Server"}
+]
+
+
 app = FastAPI(
     title="Lease Accounting API",
+
     description=(
         "Lease Accounting API with Auth0 authentication.\n\n"
         "This API provides lease accounting schedule generation for ASC 842 (US GAAP) "
@@ -27,9 +37,9 @@ app = FastAPI(
         "API audience. Generate tokens via your Auth0 tenant and authorize requests with "
         "`Authorization: Bearer <token>`."
     ),
-    version="1.0.0",
+    version="1.0.1",
     swagger_ui_parameters={
-        "persistAuthorization": False,
+        "persistAuthorization": True,
         "displayOperationId" : False,
         "layout": "BaseLayout",
         "syntaxHighlight": {"theme": "nord"}
@@ -49,6 +59,7 @@ def custom_openapi():
         routes=app.routes,
     )
 
+    openapi_schema["servers"] = api_servers
 
     # Disable the default HttpBearer
     openapi_schema["components"]["securitySchemes"] = {}
@@ -87,7 +98,7 @@ def on_startup():
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://kontracts-ui.vadlakonda.in", "http://localhost:3000"],
+    allow_origins=["https://*.vadlakonda.in", "https://app.kontracts.pro", "https://*.vercel.com", "http://localhost:5472", "http://localhost:8001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,7 +110,7 @@ app.include_router(schedules.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")
 
 
-@app.get("/")
+@app.get("/description")
 def root():
     return {
         "message": "Lease Accounting API",
