@@ -80,15 +80,26 @@ class ASC842Calculator:
         
     #     return self.lease.incremental_borrowing_rate / periods_per_year
     
-    def calculate_period_rate_from_payments(self) -> Decimal:
-        """Calculate periodic interest rate from annual IBR"""
+    def calculate_period_rate_from_payments(self, payment_schedule: List[Dict]) -> Decimal:
+        """Calculate periodic interest rate from annual IBR and payment cadence"""
         annual_rate = self.lease.incremental_borrowing_rate / 100
-        frequency_map = {
-            "monthly": Decimal("12"),
-            "quarterly": Decimal("4"),
-            "annual": Decimal("1"),
-        }
-        periods = frequency_map.get(self.lease.payment_frequency, Decimal("12"))
+        periods = Decimal("12")
+        if len(payment_schedule) > 1:
+            days_between = []
+            for i in range(len(payment_schedule) - 1):
+                date1 = payment_schedule[i]["due_date"]
+                date2 = payment_schedule[i + 1]["due_date"]
+                days = (date2 - date1).days
+                if days > 0:
+                    days_between.append(days)
+            if days_between:
+                avg_days = sum(days_between) / len(days_between)
+                if avg_days <= 35:
+                    periods = Decimal("12")
+                elif avg_days <= 100:
+                    periods = Decimal("4")
+                else:
+                    periods = Decimal("1")
         logger.debug("Calculated period_rate for lease %s: %s", self.lease.id, annual_rate / periods)
         return annual_rate / periods
 
@@ -163,7 +174,7 @@ class ASC842Calculator:
         logger.debug("Fetched payment schedule for lease %s", self.lease.id)
         
         # Calculate period rate based on payment frequency
-        period_rate = self.calculate_period_rate_from_payments()
+        period_rate = self.calculate_period_rate_from_payments(payment_schedule)
         logger.debug("Period rate for lease %s: %s", self.lease.id, period_rate)
         
         # Calculate initial measurements

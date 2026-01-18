@@ -1,11 +1,10 @@
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
-from dateutil.relativedelta import relativedelta
 from typing import List, Dict, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.lease import Lease, LeaseScheduleEntry
 from app.models.schedule import IFRS16Schedule
+from app.models.journals import Payments
 from .utils import make_json_safe
 
 
@@ -28,60 +27,72 @@ class IFRS16Calculator:
     def __init__(self, lease: Lease):
         self.lease = lease
 
-    def calculate_term_months(self) -> int:
-        """Calculate lease term in months from commencement and end dates"""
-        if self.lease.end_date <= self.lease.commencement_date:
-            raise ValueError("end_date must be after commencement_date")
-        delta = relativedelta(self.lease.end_date, self.lease.commencement_date)
-        months = delta.years * 12 + delta.months
-        if delta.days > 0:
-            months += 1
-        if months <= 0:
-            raise ValueError("Lease term must be at least one month")
-        return months
+    def fetch_payments_from_db(self, db: Session) -> List[Dict]:
+        """Fetch payments from database for this lease"""
+        payments = db.query(Payments).filter(
+            Payments.contract_id == str(self.lease.id)
+        ).order_by(Payments.due_date).all()
 
-    def calculate_payment_periods(self) -> int:
-        """Calculate number of payment periods based on frequency"""
-        term_months = self.calculate_term_months()
-        frequency_map = {
-            "monthly": term_months,
-            "quarterly": term_months // 3,
-            "annual": term_months // 12,
-        }
-        return frequency_map.get(self.lease.payment_frequency, term_months)
+        if not payments:
+            raise ValueError(f"No payments found for lease ID {self.lease.id}")
 
-    def calculate_period_rate(self) -> Decimal:
-        """Calculate periodic interest rate from annual discount rate"""
+        payment_schedule = []
+        for payment in payments:
+            payment_schedule.append({
+                "amount": Decimal(str(payment.amount)),
+                "due_date": payment.due_date.date() if hasattr(payment.due_date, 'date') else payment.due_date,
+                "payment_id": payment.id
+            })
+        return payment_schedule
+
+    def calculate_period_rate_from_payments(self, payment_schedule: List[Dict]) -> Decimal:
+        """Calculate periodic interest rate from annual discount rate and payment cadence"""
         annual_rate = self.lease.discount_rate / 100
-        frequency_map = {
-            "monthly": Decimal("12"),
-            "quarterly": Decimal("4"),
-            "annual": Decimal("1"),
-        }
-        periods = frequency_map.get(self.lease.payment_frequency, Decimal("12"))
+        periods = Decimal("12")
+        if len(payment_schedule) > 1:
+            days_between = []
+            for i in range(len(payment_schedule) - 1):
+                date1 = payment_schedule[i]["due_date"]
+                date2 = payment_schedule[i + 1]["due_date"]
+                days = (date2 - date1).days
+                if days > 0:
+                    days_between.append(days)
+            if days_between:
+                avg_days = sum(days_between) / len(days_between)
+                if avg_days <= 35:
+                    periods = Decimal("12")
+                elif avg_days <= 100:
+                    periods = Decimal("4")
+                else:
+                    periods = Decimal("1")
         return annual_rate / periods
 
-    def calculate_present_value(self) -> Decimal:
+    def calculate_present_value(self, payment_schedule: List[Dict], period_rate: Decimal) -> Decimal:
         """Calculate present value of lease payments"""
-        n_periods = self.calculate_payment_periods()
-        period_rate = float(self.calculate_period_rate())
-        payment = float(self.lease.periodic_payment)
+        n_periods = len(payment_schedule)
+        rate = float(period_rate)
+        pv = Decimal("0")
 
-        # Present value of annuity formula
-        if period_rate == 0:
-            pv = Decimal(str(payment * n_periods))
-        else:
-            pv_factor = (1 - (1 + period_rate) ** -n_periods) / period_rate
-            pv = Decimal(str(payment * pv_factor))
+        for period_num, payment in enumerate(payment_schedule, start=1):
+            payment_amount = float(payment["amount"])
+            if rate == 0:
+                discount_factor = 1.0
+            else:
+                discount_factor = 1.0 / ((1.0 + rate) ** period_num)
+            pv += Decimal(str(payment_amount * discount_factor))
 
-        # Add present value of residual value
         if self.lease.residual_value > 0:
-            residual_pv = float(self.lease.residual_value) / ((1 + period_rate) ** n_periods)
-            pv += Decimal(str(residual_pv))
+            if rate == 0:
+                pv += self.lease.residual_value
+            else:
+                residual_pv = float(self.lease.residual_value) / ((1.0 + rate) ** n_periods)
+                pv += Decimal(str(residual_pv))
 
         return pv.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
-    def calculate_initial_measurements(self) -> Tuple[Decimal, Decimal]:
+    def calculate_initial_measurements(
+        self, payment_schedule: List[Dict], period_rate: Decimal
+    ) -> Tuple[Decimal, Decimal]:
         """
         Calculate initial ROU asset and lease liability under IFRS 16
 
@@ -90,7 +101,7 @@ class IFRS16Calculator:
 
         Note: IFRS 16 includes initial direct costs in ROU asset
         """
-        lease_liability = self.calculate_present_value()
+        lease_liability = self.calculate_present_value(payment_schedule, period_rate)
 
         rou_asset = (
             lease_liability
@@ -103,12 +114,14 @@ class IFRS16Calculator:
 
     def generate_schedule(self, db: Session) -> IFRS16Schedule:
         """Generate complete IFRS 16 lease schedule"""
-        rou_asset, lease_liability = self.calculate_initial_measurements()
-        n_periods = self.calculate_payment_periods()
-        period_rate = self.calculate_period_rate()
-
+        payment_schedule = self.fetch_payments_from_db(db)
+        period_rate = self.calculate_period_rate_from_payments(payment_schedule)
+        rou_asset, lease_liability = self.calculate_initial_measurements(
+            payment_schedule, period_rate
+        )
+        n_periods = len(payment_schedule)
         entries = self._generate_ifrs16_schedule(
-            rou_asset, lease_liability, n_periods, period_rate
+            rou_asset, lease_liability, payment_schedule, period_rate
         )
 
         # Calculate totals
@@ -145,7 +158,7 @@ class IFRS16Calculator:
         return schedule
 
     def _generate_ifrs16_schedule(
-        self, rou_asset: Decimal, lease_liability: Decimal, n_periods: int, period_rate: Decimal
+        self, rou_asset: Decimal, lease_liability: Decimal, payment_schedule: List[Dict], period_rate: Decimal
     ) -> List[Dict]:
         """
         Generate IFRS 16 lease schedule
@@ -160,13 +173,14 @@ class IFRS16Calculator:
         remaining_liability = lease_liability
         remaining_asset = rou_asset
 
-        # Straight-line depreciation
+        n_periods = len(payment_schedule)
         depreciation_per_period = (rou_asset / Decimal(str(n_periods))).quantize(
             Decimal("0.001"), rounding=ROUND_HALF_UP
         )
 
-        for period in range(1, n_periods + 1):
-            period_date = self._calculate_period_date(period)
+        for period_num, payment_info in enumerate(payment_schedule, start=1):
+            period_date = payment_info["due_date"]
+            payment_amount = payment_info["amount"]
 
             # Interest expense = Beginning liability * discount rate (effective interest method)
             interest_expense = (remaining_liability * period_rate).quantize(
@@ -174,13 +188,13 @@ class IFRS16Calculator:
             )
 
             # Principal reduction = Payment - Interest
-            principal_reduction = self.lease.periodic_payment - interest_expense
+            principal_reduction = payment_amount - interest_expense
 
             # Ending liability
             ending_liability = remaining_liability - principal_reduction
 
             # Depreciation (straight-line)
-            if period == n_periods:
+            if period_num == n_periods:
                 # Last period: depreciate remaining balance to ensure ROU asset reaches zero
                 depreciation = remaining_asset
             else:
@@ -192,9 +206,9 @@ class IFRS16Calculator:
             total_expense = interest_expense + depreciation
 
             entries.append({
-                "period": period,
+                "period": period_num,
                 "period_date": period_date,
-                "lease_payment": self.lease.periodic_payment,
+                "lease_payment": payment_amount,
                 "interest_expense": interest_expense,
                 "principal_reduction": principal_reduction,
                 "lease_liability_beginning": remaining_liability,
@@ -209,13 +223,3 @@ class IFRS16Calculator:
             remaining_asset = max(ending_asset, Decimal("0"))
 
         return entries
-
-    def _calculate_period_date(self, period: int) -> date:
-        """Calculate the date for a given period"""
-        frequency_map = {
-            "monthly": relativedelta(months=period),
-            "quarterly": relativedelta(months=period * 3),
-            "annual": relativedelta(years=period),
-        }
-        delta = frequency_map.get(self.lease.payment_frequency, relativedelta(months=period))
-        return self.lease.commencement_date + delta

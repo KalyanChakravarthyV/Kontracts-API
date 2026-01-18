@@ -19,11 +19,7 @@ class LeaseBase(BaseModel):
     # Lease terms
     commencement_date: date = Field(..., description="Lease commencement date")
     end_date: date = Field(..., description="Lease end date for calculating term")
-    next_payment: Optional[datetime] = Field(default=None, description="Next payment due date")
-
     # Financial details
-    periodic_payment: Decimal = Field(..., gt=0, description="Periodic lease payment amount")
-    payment_frequency: str = Field(default="monthly", description="Payment frequency: monthly, quarterly, annual")
     payment_terms: Optional[str] = Field(default=None, description="Payment terms description")
     initial_direct_costs: Decimal = Field(default=Decimal("0"), description="Initial direct costs")
     prepaid_rent: Decimal = Field(default=Decimal("0"), description="Prepaid rent amount")
@@ -51,9 +47,6 @@ class LeaseUpdate(BaseModel):
     document_id: Optional[str] = None
     commencement_date: Optional[date] = None
     end_date: Optional[date] = None
-    next_payment: Optional[datetime] = None
-    periodic_payment: Optional[Decimal] = None
-    payment_frequency: Optional[str] = None
     payment_terms: Optional[str] = None
     initial_direct_costs: Optional[Decimal] = None
     prepaid_rent: Optional[Decimal] = None

@@ -126,7 +126,8 @@ def sample_lease_data():
     """Reusable test data"""
     return {
         "lease_name": "Office Space Lease",
-        "periodic_payment": 5000.00,
+        "end_date": "2027-01-01",
+        "incremental_borrowing_rate": 5,
         # ...
     }
 ```

@@ -43,16 +43,12 @@ class TestLeaseEndpoints:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    def test_create_lease_negative_payment(self, client, sample_lease_data):
-        """Test creating a lease with negative payment amount"""
-        sample_lease_data["periodic_payment"] = -1000.00
+    def test_create_lease_invalid_dates(self, client, sample_lease_data):
+        """Test creating a lease with invalid dates"""
+        sample_lease_data["end_date"] = "2023-01-01"
         response = client.post("/api/v1/leases/", json=sample_lease_data)
 
-        # Should either reject or accept based on validation rules
-        assert response.status_code in [
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            status.HTTP_201_CREATED
-        ]
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_list_leases_empty(self, client):
         """Test listing leases when database is empty"""
@@ -125,14 +121,14 @@ class TestLeaseEndpoints:
 
         # Update the lease
         update_data = {
-            "periodic_payment": 6000.00,
+            "payment_terms": "Net 30",
             "status": "amended"
         }
         response = client.put(f"/api/v1/leases/{lease_id}", json=update_data)
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert self._as_decimal(data["periodic_payment"]) == Decimal("6000.00")
+        assert data["payment_terms"] == "Net 30"
         assert data["status"] == "amended"
         # Verify unchanged fields remain
         assert data["lease_name"] == sample_lease_data["lease_name"]
@@ -157,9 +153,7 @@ class TestLeaseEndpoints:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "inactive"
-        assert self._as_decimal(data["periodic_payment"]) == self._as_decimal(
-            sample_lease_data["periodic_payment"]
-        )
+        assert data["lease_name"] == sample_lease_data["lease_name"]
 
     def test_delete_lease_success(self, client, sample_lease_data):
         """Test successfully deleting a lease"""
@@ -208,7 +202,6 @@ class TestLeaseEndpoints:
 
     def test_lease_decimal_precision(self, client, sample_lease_data):
         """Test that decimal values maintain precision"""
-        sample_lease_data["periodic_payment"] = 5432.10
         sample_lease_data["incremental_borrowing_rate"] = 5.25
 
         response = client.post("/api/v1/leases/", json=sample_lease_data)
@@ -216,7 +209,6 @@ class TestLeaseEndpoints:
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         # Verify decimal precision is maintained
-        assert self._as_decimal(data["periodic_payment"]) == Decimal("5432.10")
         assert self._as_decimal(data["incremental_borrowing_rate"]) == Decimal("5.25")
 
 

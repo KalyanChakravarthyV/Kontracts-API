@@ -24,23 +24,17 @@ def _term_months(lease: Lease) -> int:
     return months
 
 
-def _payment_periods(lease: Lease) -> int:
+def _seed_payments(
+    db_session,
+    lease: Lease,
+    amount: Decimal,
+    count: int | None = None,
+    step_months: int = 1,
+) -> int:
     term_months = _term_months(lease)
-    frequency_map = {
-        "monthly": term_months,
-        "quarterly": term_months // 3,
-        "annual": term_months // 12,
-    }
-    return frequency_map.get(lease.payment_frequency, term_months)
-
-
-def _seed_payments(db_session, lease: Lease, count: int | None = None) -> int:
-    total_periods = _payment_periods(lease)
+    total_periods = (term_months + step_months - 1) // step_months
     payment_count = min(count or total_periods, total_periods)
     start_date = lease.commencement_date
-    step_months = {"monthly": 1, "quarterly": 3, "annual": 12}.get(
-        lease.payment_frequency, 1
-    )
 
     for period in range(payment_count):
         due_date = datetime.combine(
@@ -50,7 +44,7 @@ def _seed_payments(db_session, lease: Lease, count: int | None = None) -> int:
         db_session.add(
             Payments(
                 contract_id=str(lease.id),
-                amount=lease.periodic_payment,
+                amount=amount,
                 due_date=due_date,
                 status="Scheduled",
             )
@@ -67,23 +61,24 @@ class TestASC842Calculator:
     def test_calculate_present_value(self, db_session, sample_lease):
         """Test present value calculation"""
         calculator = ASC842Calculator(sample_lease)
-        _seed_payments(db_session, sample_lease)
+        amount = Decimal("5000.00")
+        _seed_payments(db_session, sample_lease, amount)
         payment_schedule = calculator.fetch_payments_from_db(db_session)
-        period_rate = calculator.calculate_period_rate_from_payments()
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
         pv = calculator.calculate_present_value_from_payments(payment_schedule, period_rate)
 
         assert isinstance(pv, Decimal)
         assert pv > 0
         # PV should be less than total payments
-        total_payments = sample_lease.periodic_payment * _term_months(sample_lease)
+        total_payments = amount * _term_months(sample_lease)
         assert pv < total_payments
 
     def test_calculate_initial_rou_asset(self, db_session, sample_lease):
         """Test initial ROU asset calculation"""
         calculator = ASC842Calculator(sample_lease)
-        _seed_payments(db_session, sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         payment_schedule = calculator.fetch_payments_from_db(db_session)
-        period_rate = calculator.calculate_period_rate_from_payments()
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
         rou_asset, lease_liability = calculator.calculate_initial_measurements(
             payment_schedule, period_rate
         )
@@ -96,7 +91,7 @@ class TestASC842Calculator:
     def test_generate_schedule_operating_lease(self, db_session, sample_lease):
         """Test schedule generation for operating lease"""
         calculator = ASC842Calculator(sample_lease)
-        payment_count = _seed_payments(db_session, sample_lease)
+        payment_count = _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         schedule = calculator.generate_schedule(db_session)
 
         assert schedule is not None
@@ -111,7 +106,7 @@ class TestASC842Calculator:
     def test_generate_schedule_finance_lease(self, db_session, sample_finance_lease):
         """Test schedule generation for finance lease"""
         calculator = ASC842Calculator(sample_finance_lease)
-        _seed_payments(db_session, sample_finance_lease)
+        _seed_payments(db_session, sample_finance_lease, Decimal("10000.00"))
         schedule = calculator.generate_schedule(db_session)
 
         assert schedule is not None
@@ -122,7 +117,7 @@ class TestASC842Calculator:
     def test_schedule_entries_descending_liability(self, db_session, sample_lease):
         """Test that lease liability decreases over time"""
         calculator = ASC842Calculator(sample_lease)
-        _seed_payments(db_session, sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         calculator.generate_schedule(db_session)
 
         entries = db_session.query(
@@ -141,7 +136,7 @@ class TestASC842Calculator:
     def test_schedule_entries_final_period(self, db_session, sample_lease):
         """Test that final period liability is near zero"""
         calculator = ASC842Calculator(sample_lease)
-        _seed_payments(db_session, sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         calculator.generate_schedule(db_session)
 
         # Get last entry
@@ -158,7 +153,8 @@ class TestASC842Calculator:
     def test_total_payments_match(self, db_session, sample_lease):
         """Test that total payments in schedule match expected total"""
         calculator = ASC842Calculator(sample_lease)
-        payment_count = _seed_payments(db_session, sample_lease)
+        amount = Decimal("5000.00")
+        payment_count = _seed_payments(db_session, sample_lease, amount)
         calculator.generate_schedule(db_session)
 
         entries = db_session.query(
@@ -169,14 +165,14 @@ class TestASC842Calculator:
         ).all()
 
         total_payments = sum(entry.lease_payment for entry in entries)
-        expected_total = sample_lease.periodic_payment * payment_count
+        expected_total = amount * payment_count
 
         assert abs(total_payments - expected_total) < Decimal("0.01")
 
     def test_interest_calculation_accuracy(self, db_session, sample_lease):
         """Test interest calculation accuracy"""
         calculator = ASC842Calculator(sample_lease)
-        _seed_payments(db_session, sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         calculator.generate_schedule(db_session)
 
         # Get first entry to verify interest calculation
@@ -189,7 +185,8 @@ class TestASC842Calculator:
         ).first()
 
         # Calculate expected monthly interest
-        period_rate = calculator.calculate_period_rate_from_payments()
+        payment_schedule = calculator.fetch_payments_from_db(db_session)
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
         expected_interest = first_entry.lease_liability_beginning * period_rate
 
         # Should be very close (within rounding)
@@ -204,7 +201,10 @@ class TestIFRS16Calculator:
     def test_calculate_present_value(self, db_session, sample_lease):
         """Test present value calculation for IFRS 16"""
         calculator = IFRS16Calculator(sample_lease)
-        pv = calculator.calculate_present_value()
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
+        payment_schedule = calculator.fetch_payments_from_db(db_session)
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
+        pv = calculator.calculate_present_value(payment_schedule, period_rate)
 
         assert isinstance(pv, Decimal)
         assert pv > 0
@@ -212,7 +212,10 @@ class TestIFRS16Calculator:
     def test_calculate_initial_rou_asset(self, db_session, sample_lease):
         """Test initial ROU asset calculation for IFRS 16"""
         calculator = IFRS16Calculator(sample_lease)
-        rou_asset, _ = calculator.calculate_initial_measurements()
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
+        payment_schedule = calculator.fetch_payments_from_db(db_session)
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
+        rou_asset, _ = calculator.calculate_initial_measurements(payment_schedule, period_rate)
 
         assert isinstance(rou_asset, Decimal)
         assert rou_asset > 0
@@ -220,6 +223,7 @@ class TestIFRS16Calculator:
     def test_generate_schedule(self, db_session, sample_lease):
         """Test IFRS 16 schedule generation"""
         calculator = IFRS16Calculator(sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         schedule = calculator.generate_schedule(db_session)
 
         assert schedule is not None
@@ -236,7 +240,7 @@ class TestIFRS16Calculator:
             schedule_type="IFRS16"
         ).all()
 
-        assert len(entries) == calculator.calculate_payment_periods()
+        assert len(entries) == len(calculator.fetch_payments_from_db(db_session))
 
     def test_ifrs16_vs_asc842_comparison(self, db_session, sample_lease):
         """Test differences between IFRS 16 and ASC 842 calculations"""
@@ -244,7 +248,7 @@ class TestIFRS16Calculator:
         asc842_calc = ASC842Calculator(sample_lease)
         ifrs16_calc = IFRS16Calculator(sample_lease)
 
-        _seed_payments(db_session, sample_lease)
+        _seed_payments(db_session, sample_lease, Decimal("5000.00"))
         asc842_schedule = asc842_calc.generate_schedule(db_session)
         db_session.expunge(asc842_schedule)  # Detach to avoid conflicts
 
@@ -271,7 +275,6 @@ class TestCalculatorEdgeCases:
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
             end_date=date(2025, 1, 1),
-            periodic_payment=Decimal("1000.00"),
             initial_direct_costs=Decimal("0"),
             prepaid_rent=Decimal("0"),
             lease_incentives=Decimal("0"),
@@ -282,7 +285,7 @@ class TestCalculatorEdgeCases:
         db_session.commit()
 
         calculator = ASC842Calculator(lease)
-        _seed_payments(db_session, lease)
+        _seed_payments(db_session, lease, Decimal("1000.00"))
         schedule = calculator.generate_schedule(db_session)
 
         assert schedule.initial_rou_asset > 0
@@ -296,7 +299,6 @@ class TestCalculatorEdgeCases:
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
             end_date=date(2026, 1, 1),
-            periodic_payment=Decimal("5000.00"),
             incremental_borrowing_rate=Decimal("15"),  # 15%
             discount_rate=Decimal("15")
         )
@@ -304,13 +306,13 @@ class TestCalculatorEdgeCases:
         db_session.commit()
 
         calculator = ASC842Calculator(lease)
-        _seed_payments(db_session, lease)
+        _seed_payments(db_session, lease, Decimal("5000.00"))
         payment_schedule = calculator.fetch_payments_from_db(db_session)
-        period_rate = calculator.calculate_period_rate_from_payments()
+        period_rate = calculator.calculate_period_rate_from_payments(payment_schedule)
         pv = calculator.calculate_present_value_from_payments(payment_schedule, period_rate)
 
         # Higher discount rate should result in lower PV
-        assert pv < lease.periodic_payment * _term_months(lease)
+        assert pv < Decimal("5000.00") * _term_months(lease)
 
     def test_long_term_lease(self, db_session):
         """Test calculation for long-term lease (10 years)"""
@@ -320,7 +322,6 @@ class TestCalculatorEdgeCases:
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
             end_date=date(2034, 1, 1),  # 10 years
-            periodic_payment=Decimal("10000.00"),
             incremental_borrowing_rate=Decimal("6"),
             discount_rate=Decimal("6")
         )
@@ -328,7 +329,7 @@ class TestCalculatorEdgeCases:
         db_session.commit()
 
         calculator = ASC842Calculator(lease)
-        _seed_payments(db_session, lease)
+        _seed_payments(db_session, lease, Decimal("10000.00"))
         schedule = calculator.generate_schedule(db_session)
 
         # Verify all 120 periods were created
@@ -349,8 +350,6 @@ class TestCalculatorEdgeCases:
             lessee_name="Lessee",
             commencement_date=date(2024, 1, 1),
             end_date=date(2027, 1, 1),
-            periodic_payment=Decimal("15000.00"),
-            payment_frequency="quarterly",
             incremental_borrowing_rate=Decimal("5"),
             discount_rate=Decimal("5")
         )
@@ -358,7 +357,7 @@ class TestCalculatorEdgeCases:
         db_session.commit()
 
         calculator = ASC842Calculator(lease)
-        _seed_payments(db_session, lease)
+        _seed_payments(db_session, lease, Decimal("15000.00"), step_months=3)
         schedule = calculator.generate_schedule(db_session)
 
         assert schedule is not None

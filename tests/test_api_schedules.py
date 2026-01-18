@@ -27,7 +27,7 @@ def _seed_payments(client, lease_id, lease_data, count=3):
     end_date = lease_data["end_date"]
     if isinstance(end_date, str):
         end_date = date.fromisoformat(end_date)
-    amount = lease_data["periodic_payment"]
+    amount = lease_data.get("payment_amount", 5000.00)
     payment_count = min(count, _term_months(start.date(), end_date))
 
     for i in range(payment_count):
@@ -89,6 +89,7 @@ class TestScheduleEndpoints:
         # Create a lease
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
 
         # Generate IFRS 16 schedule
         response = client.post(f"/api/v1/schedules/ifrs16/{lease_id}")
@@ -129,6 +130,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/ifrs16/{lease_id}")
 
         # Get the schedule
@@ -173,6 +175,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/ifrs16/{lease_id}")
 
         # Get entries
@@ -211,6 +214,7 @@ class TestScheduleEndpoints:
         # Create lease and schedule
         lease_response = client.post("/api/v1/leases/", json=sample_lease_data)
         lease_id = lease_response.json()["id"]
+        _seed_payments(client, lease_id, sample_lease_data)
         client.post(f"/api/v1/schedules/ifrs16/{lease_id}")
 
         # Delete the schedule

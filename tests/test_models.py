@@ -40,7 +40,6 @@ class TestLeaseModel:
         assert lease.lease_name == "Office Space Lease"
         assert lease.classification == LeaseClassification.OPERATING
         assert lease.end_date == date(2027, 1, 1)
-        assert lease.periodic_payment == Decimal("5000.00")
         assert lease.created_at is not None
 
     def test_create_lease_finance(self, db_session, sample_finance_lease_data):
@@ -73,13 +72,12 @@ class TestLeaseModel:
             lessee_name="Test Lessee",
             commencement_date=date(2024, 1, 1),
             end_date=date(2025, 1, 1),
-            periodic_payment=Decimal("1000.00")
+            incremental_borrowing_rate=Decimal("5")
         )
         db_session.add(lease)
         db_session.commit()
         db_session.refresh(lease)
 
-        assert lease.payment_frequency == "monthly"
         assert lease.initial_direct_costs == Decimal("0")
         assert lease.classification == LeaseClassification.OPERATING
         assert lease.status == "active"
@@ -87,12 +85,12 @@ class TestLeaseModel:
     def test_lease_update(self, db_session, sample_lease):
         """Test updating lease fields"""
         sample_lease.status = "terminated"
-        sample_lease.periodic_payment = Decimal("6000.00")
+        sample_lease.payment_terms = "Net 30"
         db_session.commit()
         db_session.refresh(sample_lease)
 
         assert sample_lease.status == "terminated"
-        assert sample_lease.periodic_payment == Decimal("6000.00")
+        assert sample_lease.payment_terms == "Net 30"
 
     def test_lease_delete_cascades_to_schedules(self, db_session, sample_lease):
         """Test that deleting a lease cascades to related schedules"""
@@ -249,7 +247,7 @@ class TestJournalModels:
             trigger_event="month_end",
             debit_account="Lease Expense",
             credit_account="Lease Liability",
-            amount_column="periodic_payment",
+            amount_column="amount",
             period_reference="n",
             is_active=True,
             description="Automated monthly lease expense entry"

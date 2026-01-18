@@ -29,11 +29,7 @@ class Lease(Base):
     # Lease terms
     commencement_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    next_payment = Column(DateTime, nullable=True)  # From Contracts - next payment due date
-
     # Financial details
-    periodic_payment = Column(Numeric(15, 2), nullable=False)  # Previously 'amount' in Contracts
-    payment_frequency = Column(String, default="monthly")  # monthly, quarterly, annual
     payment_terms = Column(String, nullable=True)  # From Contracts - payment terms description
     initial_direct_costs = Column(Numeric(15, 2), default=0)
     prepaid_rent = Column(Numeric(15, 2), default=0)

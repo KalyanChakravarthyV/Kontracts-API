@@ -144,8 +144,6 @@ curl -X POST "http://localhost:8001/api/v1/leases/" \
     "lessee_name": "XYZ Corporation",
     "commencement_date": "2024-01-01",
     "end_date": "2029-01-01",
-    "periodic_payment": 10000.00,
-    "payment_frequency": "monthly",
     "initial_direct_costs": 5000.00,
     "prepaid_rent": 10000.00,
     "lease_incentives": 2000.00,
