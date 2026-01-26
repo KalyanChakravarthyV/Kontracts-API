@@ -19,7 +19,7 @@ dependencies = [
   "python-dateutil==2.9.0",
   "numpy==2.4.0",
   "pandas==2.3.3",
-  "python-multipart==0.0.18",
+  "python-multipart==0.0.22",
   "python-dotenv==1.0.1",
   "python-jose[cryptography]==3.3.0",
   "passlib[bcrypt]==1.7.4",
